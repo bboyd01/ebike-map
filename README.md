@@ -16,7 +16,8 @@ Chicago area (city only, or city + collar suburbs), like Google Maps' bike mode 
 - **Turn-by-turn navigation** with voice prompts and automatic rerouting.
 
 > Status: **Phase 0 (spike).** The routing profile, deployment, data pipeline, and ETA
-> core are written; the BRouter checks haven't been run yet. See [`docs/SPEC.md`](docs/SPEC.md).
+> core are written. The spike ran on real Chicago data (13 of 14 checks pass; first-route
+> latency still needs measuring on the VPS). See [`docs/SPEC.md`](docs/SPEC.md) §15.
 
 ## Stack
 

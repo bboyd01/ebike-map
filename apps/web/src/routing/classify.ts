@@ -21,6 +21,8 @@ const anySide = (t: Tags, ...vals: string[]) =>
 export function classify(t: Tags): InfraClass {
   const hw = t.highway;
   const bikeYes = is(t.bicycle, 'yes', 'permissive', 'designated');
+  // A one-way cycleway is a separated lane beside a street; trails are two-way.
+  if (hw === 'cycleway' && is(t.oneway, 'yes', 'true', '1', '-1')) return 'protected';
   if (hw === 'cycleway' || (is(hw, 'path', 'footway', 'bridleway') && t.bicycle === 'designated')) return 'trail';
   if (is(hw, 'steps') || t.bicycle === 'dismount' || (is(hw, 'footway', 'pedestrian', 'path') && !bikeYes)) return 'other';
   if (anySide(t, 'track', 'separate')) return 'protected';
@@ -28,7 +30,7 @@ export function classify(t: Tags): InfraClass {
   if (anySide(t, 'shared_lane', 'shared')) return 'shared';
   const quietHw = is(hw, 'residential', 'living_street', 'unclassified', 'service');
   if (quietHw && (t.route_bicycle_lcn === 'yes' || t.route_bicycle_rcn === 'yes' || t.bicycle_road === 'yes')) return 'greenway';
-  if (quietHw) return is(t.service, 'parking_aisle', 'driveway', 'drive-through') ? 'other' : 'quiet';
+  if (quietHw) return is(t.service, 'alley', 'parking_aisle', 'driveway', 'drive-through') ? 'other' : 'quiet';
   if (is(hw, 'tertiary', 'tertiary_link', 'secondary', 'secondary_link', 'primary', 'primary_link')) return 'arterial';
   return 'other';
 }

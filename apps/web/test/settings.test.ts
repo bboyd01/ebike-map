@@ -32,6 +32,8 @@ describe('classify (mirrors ebike.brf)', () => {
     [{ highway: 'residential', route_bicycle_lcn: 'yes' }, 'greenway'],
     [{ highway: 'residential' }, 'quiet'],
     [{ highway: 'service', service: 'parking_aisle' }, 'other'],
+    [{ highway: 'service', service: 'alley' }, 'other'],
+    [{ highway: 'cycleway', oneway: 'yes' }, 'protected'],
     [{ highway: 'primary' }, 'arterial'],
   ];
   it.each(cases)('%o → %s', (tags, cls) => expect(classify(tags)).toBe(cls));

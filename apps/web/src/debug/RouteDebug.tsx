@@ -44,16 +44,18 @@ export function RouteDebug() {
     try {
       const s = DEFAULT_SETTINGS;
       const controls = await loadControls();
-      const results = await Promise.allSettled(
-        [0, 1, 2].map(async (idx) => {
-          const res = await fetch(routeUrl('/route', [a, b], s, idx));
-          if (!res.ok) throw new Error(await res.text());
-          return { idx, eta: estimate(parseBRouter(await res.json()), s, controls) };
-        }),
-      );
-      const ok = results.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []));
-      if (!ok.length) throw new Error((results[0] as PromiseRejectedResult).reason?.message ?? 'routing failed');
-      setAlts(rankAlternatives(ok, s));
+      // BRouter computes alternatives cumulatively (alt 2 recomputes 0 and 1), so
+      // fetch them in order and show each as it arrives.
+      const found: { idx: number; eta: Eta }[] = [];
+      for (const idx of [0, 1, 2]) {
+        const res = await fetch(routeUrl('/route', [a, b], s, idx));
+        if (!res.ok) {
+          if (idx === 0) throw new Error(await res.text());
+          break;
+        }
+        found.push({ idx, eta: estimate(parseBRouter(await res.json()), s, controls) });
+        setAlts(rankAlternatives(found, s));
+      }
     } catch (e) {
       setError(String((e as Error).message ?? e));
     } finally {
