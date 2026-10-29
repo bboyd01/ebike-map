@@ -1,0 +1,39 @@
+# Coolify "Docker Compose" resource (docs/SPEC.md §11). Set the base directory to /deploy.
+# Only `web` gets a domain in Coolify; brouter and data stay on the internal network.
+services:
+  brouter:
+    build: ../routing
+    restart: unless-stopped
+    volumes:
+      - segments:/segments4
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs 'http://localhost:17777/brouter?lonlats=-87.6298,41.8781|-87.6244,41.8827&profile=ebike&format=geojson' >/dev/null"]
+      interval: 60s
+      timeout: 10s
+      start_period: 300s
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/web.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - brouter
+    volumes:
+      - data:/srv/data:ro
+    expose:
+      - "80"
+    mem_limit: 64m
+
+  data:
+    build: ../data
+    restart: unless-stopped
+    volumes:
+      - segments:/segments4
+      - data:/srv/data
+    mem_limit: 512m
+
+volumes:
+  segments:
+  data:

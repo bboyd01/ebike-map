@@ -1,0 +1,48 @@
+{
+	admin off
+	order rate_limit before basic_auth
+	servers {
+		# Coolify's Traefik sits in front; trust it for the client IP.
+		trusted_proxies static private_ranges
+	}
+}
+
+:80 {
+	# Routing: only the route endpoint is exposed, never BRouter's profile upload.
+	handle /route {
+		rate_limit {
+			zone route {
+				key {client_ip}
+				events 30
+				window 1m
+			}
+		}
+		rewrite * /brouter?{query}
+		reverse_proxy brouter:17777
+	}
+
+	# Basemaps, controls, manifest. PMTiles are served raw (range requests,
+	# tiles are already compressed); small binary/JSON files get compressed.
+	handle_path /data/* {
+		root * /srv/data
+		@small path *.bin *.json
+		encode @small zstd gzip
+		@manifest path /manifest.json
+		header @manifest Cache-Control "no-cache"
+		@versioned path_regexp \.v\d+\.
+		header @versioned Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	# App shell.
+	handle {
+		root * /srv/app
+		encode zstd gzip
+		@hashed path /assets/*
+		header @hashed Cache-Control "public, max-age=31536000, immutable"
+		@shell path / /index.html /sw.js /manifest.webmanifest
+		header @shell Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+}

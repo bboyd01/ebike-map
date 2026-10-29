@@ -70,7 +70,7 @@ The stack is chosen to stay lean: **no database, no custom API server, two conta
 | Geocoding | **Photon** (`photon.komoot.io`) with bbox + location bias | Free and supports autocomplete. Self-hosting needs Elasticsearch-scale resources, which this VPS doesn't have. Nominatim is a fallback for one-off lookups only, because its usage policy forbids autocomplete. |
 | Voice | Web Speech API (`speechSynthesis`) | Built in, free, works offline. |
 | Edge / static | **Caddy** container | Serves the app, PMTiles, and data files. Reverse-proxies `/route` to BRouter (BRouter itself is never exposed) and rate-limits. Sits behind Coolify's Traefik. |
-| Data refresh | Weekly Coolify scheduled task (shell script) | Downloads the prebuilt `W90_N40.rd5` from brouter.de, re-extracts the PMTiles for both areas, and rebuilds the controls files (§6.4). |
+| Data refresh | Small `data` container running `crond` weekly (shell script) | Downloads the prebuilt `W90_N40.rd5` from brouter.de, re-extracts the PMTiles for both areas, and rebuilds the controls files (§6.4). |
 | Client storage | `localStorage` (settings), IndexedDB (saved places, ride recordings, calibration) | No accounts. Export/import as JSON. |
 
 ### 2.1 Why BRouter over the alternatives
@@ -87,9 +87,9 @@ The stack is chosen to stay lean: **no database, no custom API server, two conta
 
 | Component | RAM | Disk |
 |---|---|---|
-| BRouter (`-Xmx384m`) | ≤ 450 MB | ~300 MB (`W90_N40.rd5`) |
+| BRouter (`-Xmx384m`) | ≤ 450 MB | ~80 MB (`W90_N40.rd5`, 79 MB as of Oct 2026) |
 | Caddy | ≤ 40 MB | app ≈ 2 MB, PMTiles ≈ 130–260 MB (both areas), controls ≈ 0.7 MB |
-| Data-refresh job (transient, weekly) | ≤ 300 MB while running | ~400 MB scratch (Illinois `.osm.pbf`), deleted afterwards |
+| `data` service (idle `crond`; weekly refresh) | ~5 MB idle, ≤ 512 MB while refreshing | ~400 MB scratch (Illinois `.osm.pbf`), deleted afterwards |
 
 ---
 
@@ -208,8 +208,7 @@ alternative with a notice.
 | `avoid_unpaved` | on | Gravel, dirt, or grass ×3 cost (on top of ETA slowdown) |
 | `avoid_rough` | on | `smoothness=bad` or worse, and cobblestone/sett ×2 |
 | `avoid_dismount` | on | Steps, `bicycle=dismount` ×8 |
-| `avoid_unsignalized_arterial_crossings` | on | Node cost when a minor road crosses an arterial without signals |
-| `class3_mode` | auto (from bike class) | Class 3: paths with `trail-rules.json` restrictions get ×20 cost (effectively avoided) |
+| `class3_mode` | auto (from bike class) | *Deferred:* class 3 restrictions on specific paths. BRouter's data doesn't carry way IDs or names, so `trail-rules.json` needs a custom `.rd5` build (Phase 3) |
 
 `trail-rules.json` is a small, hand-maintained list of paths with e-bike class or speed
 rules (e.g. Chicago Park District and Forest Preserve paths). **The rules must be verified
@@ -290,15 +289,25 @@ It contains:
 
 - **Tagged controls:** nodes with `highway=traffic_signals`, `highway=stop` (including
   `stop=all`), `highway=give_way`, and `crossing=traffic_signals`.
-- **Per node:** lat/lon (int32 microdegrees, delta-encoded), type (u8), all-way flag.
+- **Per node:** lon/lat (int32 microdegrees) and type (u8: signal, pedestrian-crossing signal,
+  stop, all-way stop, give way). The byte layout is documented in `data/controls-format.mjs`.
 - **Coverage grid:** 1 km cells, each flagged *covered* if it has at least 1 tagged
-  signal per 3 arterial×arterial junctions. That ratio is a heuristic for whether the
-  signals in that cell are mapped (it decides which mode to use, not where controls are).
-  It gets tuned in Phase 0 against parts of the city where the mapping can be checked.
+  signal per 3 arterial×arterial junctions (nodes shared by differently named arterials).
+  Cells with no arterial junctions are covered if they contain at least one tagged stop
+  sign. This is a heuristic for whether the controls in that cell are mapped; it decides
+  which mode to use, not where controls are. It gets tuned in Phase 0 against parts of the
+  city where the mapping can be checked.
 
 Expected size: roughly 15k nodes for Chicagoland and 6k for the city, so tens of KB
 compressed. The file is lazy-loaded after first paint and cached by the service worker.
-A control counts toward a route when the node lies within 8 m of the route polyline.
+**Matching:** a control counts only when it is a *vertex* of the route geometry (BRouter
+returns every way node it passes; ±1 µdeg tolerance for rounding). A stop sign on a side
+street next to the route isn't counted. Controls of the same kind within 30 m of each
+other along the route count once, since one intersection often has several signal nodes
+and riding straight through a two-way stop passes both approaches' stop nodes.
+Known limitation: OSM stop nodes rarely carry a direction, so turning from a through
+street onto a stop-controlled street can count that street's stop sign once even though
+you don't stop there.
 
 ### 6.5 Effect on routing
 
@@ -468,7 +477,7 @@ Per route:
 | Route | Infrastructure ranking | §5.2 default order |
 | Route | Pickiness `s` | 0.20 |
 | Route | Max detour | +25% |
-| Route | Avoid unpaved / rough / dismount / unsignalized arterial crossings | on / on / on / on |
+| Route | Avoid unpaved / rough / dismount | on / on / on |
 | Behavior | Temperature (offset level = 1 − T) | 0.5 |
 | Behavior | Worst-case wait per light / stop sign / all-way stop (`t_signal` / `t_stop` / `t_allway`) | 50 s / 8 s / 10 s |
 | Behavior | Flat offset at T = 0 (`flat_max`, used where controls aren't mapped) | 50% (range 0–50%) |
@@ -504,11 +513,13 @@ Per route:
 | `brouter` | Built from `routing/Dockerfile` (BRouter release jar + `ebike.brf`) | `JAVA_OPTS=-Xmx384m`, volume `segments:/segments4`, internal network only, `mem_limit: 512m` |
 | `web` | Caddy + built app (multi-stage: `node` build → `caddy:alpine`) | Volume `data:/srv/data` for PMTiles + controls. Proxies `/route` → `brouter:17777/brouter`. Rate limit 30 req/min/IP on `/route` (caddy-ratelimit). `mem_limit: 64m` |
 
-**Weekly data refresh** (Coolify scheduled task running `data/refresh.sh` in a
-throwaway container):
+| `data` | Built from `data/Dockerfile` (node + osmium-tool + pmtiles CLI) | Runs `data/refresh.sh` once at first start if `/srv/data` is empty, then weekly from `crond` (Mondays 09:17 UTC). Volumes `segments` and `data`. `mem_limit: 512m` |
 
-1. `curl` `https://brouter.de/brouter/segments4/W90_N40.rd5` → atomic swap into the
-   `segments` volume, then restart `brouter`.
+**Weekly data refresh** (`data/refresh.sh`):
+
+1. `curl` `https://brouter.de/brouter/segments4/W90_N40.rd5` → atomic rename into the
+   `segments` volume. BRouter opens segment files per request, so no restart should be
+   needed (confirmed in Phase 0).
 2. `pmtiles extract <latest Protomaps daily build> <area>.v<N>.pmtiles --bbox=…`, once per
    area. The city bbox lies inside the metro bbox, so the city file is extracted from the
    new metro file locally rather than downloaded twice.
@@ -544,7 +555,7 @@ routing/
 data/
   refresh.sh         Weekly data refresh
   build-controls.mjs controls.bin builder
-  trail-rules.json   Path-specific e-bike rules and speed caps
+  trail-rules.json   Path-specific e-bike rules (Phase 3, needs custom .rd5)
 deploy/
   docker-compose.yml
   Caddyfile
