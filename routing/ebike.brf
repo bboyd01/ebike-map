@@ -1,0 +1,144 @@
+# ebike.brf — BRouter profile for e-bikes (see docs/SPEC.md §5)
+#
+# Every tunable is a global variable so the client can override it per request
+# with `profile:<name>=<value>` URL parameters. Defaults match the spec's default
+# ranking (shared > lane > protected > trail > greenway > quiet > arterial) with
+# pickiness s = 0.20, i.e. cf(r) = 1.2^(r-1).
+
+---context:global
+
+assign processUnusedTags      = true    # keep all way/node tags in the `messages` output
+assign turnInstructionMode    = 1       # %turnInstructionMode% | voicehints (overridden by timode) | number
+assign turnInstructionCatchingRange = 40
+assign turnInstructionRoundabouts   = true
+
+assign validForBikes = true
+
+# A* heuristic weight for the first pass (speed vs. optimality; tuned in Phase 0).
+assign pass1coefficient = 2.5   # %pass1coefficient% | A* heuristic weight | number
+
+# Chicago is flat; grade only matters for the ETA model, not route choice.
+assign downhillcost   = 0
+assign downhillcutoff = 1.5
+assign uphillcost     = 0
+assign uphillcutoff   = 1.5
+
+# --- infrastructure class cost factors (client-overridable) ---
+assign cf_shared    = 1.00   # %cf_shared%    | Shared lane (sharrow)    | number
+assign cf_lane      = 1.20   # %cf_lane%      | Painted / buffered lane  | number
+assign cf_protected = 1.44   # %cf_protected% | Protected lane           | number
+assign cf_trail     = 1.73   # %cf_trail%     | Off-street trail         | number
+assign cf_greenway  = 2.07   # %cf_greenway%  | Neighborhood greenway    | number
+assign cf_quiet     = 2.49   # %cf_quiet%     | Quiet street             | number
+assign cf_arterial  = 2.99   # %cf_arterial%  | Arterial, no infra       | number
+assign cf_other     = 3.50   # %cf_other%     | Anything else routable   | number
+assign busy_factor  = 1.5    # %busy_factor%  | Extra x for primary/secondary without infra | number
+
+# --- toggles (1 = on) ---
+assign avoid_unpaved  = 1    # %avoid_unpaved%  | x3 on unpaved surfaces         | number
+assign avoid_rough    = 1    # %avoid_rough%    | x2 on cobbles / bad smoothness | number
+assign avoid_dismount = 1    # %avoid_dismount% | x8 on steps / dismount         | number
+
+# --- node and turn costs (meters-equivalent; fixed, not tied to temperature) ---
+assign node_cost_signal = 250   # %node_cost_signal% | Traffic signal | number
+# Signalized intersections carry 2–4 crosswalk nodes (crossing=traffic_signals) that a
+# route along a protected lane passes one after another; each is a fraction of a light.
+assign node_cost_crossing_signal = 80   # %node_cost_crossing_signal% | Signalized crosswalk node | number
+assign node_cost_stop   = 60    # %node_cost_stop%   | Stop sign      | number
+assign turn_cost        = 20    # %turn_cost%        | Cost per 90-degree turn | number
+
+---context:way
+
+# Access ---------------------------------------------------------------------
+assign bike_explicit_yes = bicycle=yes|permissive|designated
+assign bike_explicit_no  = bicycle=no|private|use_sidepath
+assign access_no         = access=no|private|agricultural|delivery
+
+assign is_motorway = highway=motorway|motorway_link|trunk|trunk_link
+
+assign blocked =
+       if bike_explicit_no then true
+       else if bike_explicit_yes then false
+       else if is_motorway then true
+       else if access_no then true
+       else if highway=construction|proposed|abandoned|raceway then true
+       else if highway= then true   # railway=abandoned etc. carry no highway tag
+       else false
+
+# Wrong-way riding on one-ways is blocked unless there is a contraflow allowance.
+assign badoneway =
+       if reversedirection=yes then
+         ( if oneway:bicycle=yes then true
+           else if oneway:bicycle=no then false
+           else if oneway= then junction=roundabout
+           else oneway=yes|true|1 )
+       else oneway=-1
+
+assign contraflow = or cycleway=opposite|opposite_lane|opposite_track
+                    or cycleway:left=opposite|opposite_lane|opposite_track
+                       cycleway:right=opposite|opposite_lane|opposite_track
+
+assign oneway_blocked = and badoneway ( not contraflow )
+
+# Classification (first match wins; mirrors apps/web/src/routing/classify.ts) --
+assign has_track  = or cycleway=track
+                    or cycleway:both=track|separate
+                    or cycleway:left=track cycleway:right=track
+assign has_lane   = or cycleway=lane|opposite_lane
+                    or cycleway:both=lane
+                    or cycleway:left=lane cycleway:right=lane
+assign has_shared = or cycleway=shared_lane|shared
+                    or cycleway:both=shared_lane|shared
+                    or cycleway:left=shared_lane cycleway:right=shared_lane
+assign on_route   = or route_bicycle_lcn=yes route_bicycle_rcn=yes
+
+# A one-way highway=cycleway is almost always a separated lane beside a street
+# (Chicago maps its protected lanes this way); off-street trails are two-way.
+assign is_sidepath = and highway=cycleway oneway=yes|true|1|-1
+assign is_trail    = or ( and highway=cycleway ( not is_sidepath ) )
+                     and highway=path|footway|bridleway bicycle=designated
+assign is_quiet_hw = highway=residential|living_street|unclassified|service
+assign is_arterial = highway=tertiary|tertiary_link|secondary|secondary_link|primary|primary_link
+assign is_busy     = highway=secondary|secondary_link|primary|primary_link
+# Sidewalks and pedestrian areas without bike permission: walk the bike.
+assign is_dismount = or highway=steps
+                     or bicycle=dismount
+                     and highway=footway|pedestrian|path ( not bike_explicit_yes )
+
+assign class_cf =
+       if is_dismount then ( if equal avoid_dismount 1 then 8 else 1.5 )
+       else if is_trail then cf_trail
+       else if or has_track is_sidepath then cf_protected
+       else if has_lane then cf_lane
+       else if has_shared then cf_shared
+       else if and is_quiet_hw ( or on_route bicycle_road=yes ) then cf_greenway
+       # Chicago alleys run behind every block: rough, trash trucks, blind garage exits.
+       else if is_quiet_hw then ( if service=alley|parking_aisle|driveway|drive-through then cf_other else cf_quiet )
+       else if is_arterial then ( if is_busy then multiply cf_arterial busy_factor else cf_arterial )
+       else cf_other
+
+# Surface ----------------------------------------------------------------------
+assign is_unpaved = surface=unpaved|gravel|fine_gravel|compacted|dirt|earth|ground|grass|sand|mud|pebblestone
+assign is_rough   = or surface=cobblestone|sett
+                    smoothness=bad|very_bad|horrible|very_horrible|impassable
+
+assign surface_mult =
+       multiply ( if and is_unpaved ( equal avoid_unpaved 1 ) then 3 else 1 )
+                ( if and is_rough   ( equal avoid_rough 1 )   then 2 else 1 )
+
+assign costfactor =
+       if or blocked oneway_blocked then 10000
+       else max 1 ( multiply class_cf surface_mult )
+
+assign turncost    = if junction=roundabout then 0 else turn_cost
+assign initialcost = 0
+
+---context:node
+
+assign initialcost =
+       if highway=traffic_signals then node_cost_signal
+       else if crossing=traffic_signals then node_cost_crossing_signal
+       else if highway=stop then node_cost_stop
+       else if barrier=gate|lift_gate|swing_gate then 100
+       else if barrier=bollard|cycle_barrier then 20
+       else 0

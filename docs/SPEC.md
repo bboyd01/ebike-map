@@ -70,7 +70,7 @@ The stack is chosen to stay lean: **no database, no custom API server, two conta
 | Geocoding | **Photon** (`photon.komoot.io`) with bbox + location bias | Free and supports autocomplete. Self-hosting needs Elasticsearch-scale resources, which this VPS doesn't have. Nominatim is a fallback for one-off lookups only, because its usage policy forbids autocomplete. |
 | Voice | Web Speech API (`speechSynthesis`) | Built in, free, works offline. |
 | Edge / static | **Caddy** container | Serves the app, PMTiles, and data files. Reverse-proxies `/route` to BRouter (BRouter itself is never exposed) and rate-limits. Sits behind Coolify's Traefik. |
-| Data refresh | Weekly Coolify scheduled task (shell script) | Downloads the prebuilt `W90_N40.rd5` from brouter.de, re-extracts the PMTiles for both areas, and rebuilds the controls files (§6.4). |
+| Data refresh | Small `data` container running `crond` weekly (shell script) | Downloads the prebuilt `W90_N40.rd5` from brouter.de, re-extracts the PMTiles for both areas, and rebuilds the controls files (§6.4). |
 | Client storage | `localStorage` (settings), IndexedDB (saved places, ride recordings, calibration) | No accounts. Export/import as JSON. |
 
 ### 2.1 Why BRouter over the alternatives
@@ -87,9 +87,9 @@ The stack is chosen to stay lean: **no database, no custom API server, two conta
 
 | Component | RAM | Disk |
 |---|---|---|
-| BRouter (`-Xmx384m`) | ≤ 450 MB | ~300 MB (`W90_N40.rd5`) |
+| BRouter (`-Xmx384m`) | ≤ 450 MB | ~80 MB (`W90_N40.rd5`, 79 MB as of Oct 2026) |
 | Caddy | ≤ 40 MB | app ≈ 2 MB, PMTiles ≈ 130–260 MB (both areas), controls ≈ 0.7 MB |
-| Data-refresh job (transient, weekly) | ≤ 300 MB while running | ~400 MB scratch (Illinois `.osm.pbf`), deleted afterwards |
+| `data` service (idle `crond`; weekly refresh) | ~5 MB idle, ≤ 512 MB while refreshing | ~400 MB scratch (Illinois `.osm.pbf`), deleted afterwards |
 
 ---
 
@@ -164,12 +164,12 @@ Each way in the route is assigned exactly **one** class. The rules are evaluated
 
 | Class | Key | OSM match (simplified) |
 |---|---|---|
-| Off-street trail | `trail` | `highway=cycleway` not alongside a road; `highway=path\|footway` + `bicycle=designated` |
-| Protected lane | `protected` | `cycleway[:left\|:right\|:both]=track\|separate`; `highway=cycleway` + `cycleway=sidepath`/adjacent to a road |
+| Off-street trail | `trail` | Two-way `highway=cycleway`; `highway=path\|footway` + `bicycle=designated` |
+| Protected lane | `protected` | `cycleway[:left\|:right\|:both]=track` (`:both=separate`); **one-way** `highway=cycleway` (Chicago maps its separated lanes as one-way cycleways beside the street; off-street trails are two-way) |
 | Painted / buffered lane | `lane` | `cycleway[:*]=lane` (incl. `cycleway:*:buffer=*`) |
 | Shared lane (sharrow) | `shared` | `cycleway[:*]=shared_lane` |
 | Neighborhood greenway | `greenway` | Residential street that is part of an `lcn`/`rcn` bicycle route relation, or `bicycle_road=yes` |
-| Quiet street | `quiet` | `highway=residential\|living_street\|unclassified`, or `service` that is not a driveway or parking aisle |
+| Quiet street | `quiet` | `highway=residential\|living_street\|unclassified`, or `service` that is not an alley, driveway or parking aisle (alleys rank as `other`) |
 | Arterial, no infra | `arterial` | `highway=tertiary\|secondary\|primary` with no bike infrastructure |
 | Other | `other` | Anything else routable (`track`, pedestrian, …), always ranked after `arterial` |
 
@@ -208,8 +208,7 @@ alternative with a notice.
 | `avoid_unpaved` | on | Gravel, dirt, or grass ×3 cost (on top of ETA slowdown) |
 | `avoid_rough` | on | `smoothness=bad` or worse, and cobblestone/sett ×2 |
 | `avoid_dismount` | on | Steps, `bicycle=dismount` ×8 |
-| `avoid_unsignalized_arterial_crossings` | on | Node cost when a minor road crosses an arterial without signals |
-| `class3_mode` | auto (from bike class) | Class 3: paths with `trail-rules.json` restrictions get ×20 cost (effectively avoided) |
+| `class3_mode` | auto (from bike class) | *Deferred:* class 3 restrictions on specific paths. BRouter's data doesn't carry way IDs or names, so `trail-rules.json` needs a custom `.rd5` build (Phase 3) |
 
 `trail-rules.json` is a small, hand-maintained list of paths with e-bike class or speed
 rules (e.g. Chicago Park District and Forest Preserve paths). **The rules must be verified
@@ -290,15 +289,25 @@ It contains:
 
 - **Tagged controls:** nodes with `highway=traffic_signals`, `highway=stop` (including
   `stop=all`), `highway=give_way`, and `crossing=traffic_signals`.
-- **Per node:** lat/lon (int32 microdegrees, delta-encoded), type (u8), all-way flag.
+- **Per node:** lon/lat (int32 microdegrees) and type (u8: signal, pedestrian-crossing signal,
+  stop, all-way stop, give way). The byte layout is documented in `data/controls-format.mjs`.
 - **Coverage grid:** 1 km cells, each flagged *covered* if it has at least 1 tagged
-  signal per 3 arterial×arterial junctions. That ratio is a heuristic for whether the
-  signals in that cell are mapped (it decides which mode to use, not where controls are).
-  It gets tuned in Phase 0 against parts of the city where the mapping can be checked.
+  signal per 3 arterial×arterial junctions (nodes shared by differently named arterials).
+  Cells with no arterial junctions are covered if they contain at least one tagged stop
+  sign. This is a heuristic for whether the controls in that cell are mapped; it decides
+  which mode to use, not where controls are. It gets tuned in Phase 0 against parts of the
+  city where the mapping can be checked.
 
 Expected size: roughly 15k nodes for Chicagoland and 6k for the city, so tens of KB
 compressed. The file is lazy-loaded after first paint and cached by the service worker.
-A control counts toward a route when the node lies within 8 m of the route polyline.
+**Matching:** a control counts only when it is a *vertex* of the route geometry (BRouter
+returns every way node it passes; ±1 µdeg tolerance for rounding). A stop sign on a side
+street next to the route isn't counted. Controls of the same kind within 30 m of each
+other along the route count once, since one intersection often has several signal nodes
+and riding straight through a two-way stop passes both approaches' stop nodes.
+Known limitation: OSM stop nodes rarely carry a direction, so turning from a through
+street onto a stop-controlled street can count that street's stop sign once even though
+you don't stop there.
 
 ### 6.5 Effect on routing
 
@@ -468,7 +477,7 @@ Per route:
 | Route | Infrastructure ranking | §5.2 default order |
 | Route | Pickiness `s` | 0.20 |
 | Route | Max detour | +25% |
-| Route | Avoid unpaved / rough / dismount / unsignalized arterial crossings | on / on / on / on |
+| Route | Avoid unpaved / rough / dismount | on / on / on |
 | Behavior | Temperature (offset level = 1 − T) | 0.5 |
 | Behavior | Worst-case wait per light / stop sign / all-way stop (`t_signal` / `t_stop` / `t_allway`) | 50 s / 8 s / 10 s |
 | Behavior | Flat offset at T = 0 (`flat_max`, used where controls aren't mapped) | 50% (range 0–50%) |
@@ -487,7 +496,7 @@ Per route:
 |---|---|
 | NFR-1 | JS shell ≤ 60 KB gzip, excluding MapLibre (~220 KB gzip, loaded in parallel and cached). No other runtime dependencies over 10 KB without justification. |
 | NFR-2 | First load ≤ 1.5 s (Moto G-class device, 4G); repeat load ≤ 0.5 s; time-to-interactive map ≤ 2 s. |
-| NFR-3 | Route request p95 ≤ 400 ms server-side for trips ≤ 30 km; full client pipeline (3 alternatives + ETA) ≤ 800 ms. |
+| NFR-3 | First route p95 ≤ 1.5 s server-side for trips ≤ 25 km. Alternatives 1–2 load in the background and appear as they arrive (BRouter computes them cumulatively, so they cost 2–3× the first route). |
 | NFR-4 | Static assets use content-hashed names and `Cache-Control: public, max-age=31536000, immutable`. Data files are versioned per area (`<area>.controls.v<N>.bin`, `<area>.v<N>.pmtiles`, where area is `city` or `metro`) and `index.html` is `no-cache`. |
 | NFR-5 | Privacy: no analytics and no third-party calls except Photon geocoding. Ride recordings never leave the device unless the user exports them. |
 | NFR-6 | Accessibility: WCAG AA contrast, large tap targets (≥ 48 px) for in-ride use, and a dark mode that follows the system setting. |
@@ -504,11 +513,13 @@ Per route:
 | `brouter` | Built from `routing/Dockerfile` (BRouter release jar + `ebike.brf`) | `JAVA_OPTS=-Xmx384m`, volume `segments:/segments4`, internal network only, `mem_limit: 512m` |
 | `web` | Caddy + built app (multi-stage: `node` build → `caddy:alpine`) | Volume `data:/srv/data` for PMTiles + controls. Proxies `/route` → `brouter:17777/brouter`. Rate limit 30 req/min/IP on `/route` (caddy-ratelimit). `mem_limit: 64m` |
 
-**Weekly data refresh** (Coolify scheduled task running `data/refresh.sh` in a
-throwaway container):
+| `data` | Built from `data/Dockerfile` (node + osmium-tool + pmtiles CLI) | Runs `data/refresh.sh` once at first start if `/srv/data` is empty, then weekly from `crond` (Mondays 09:17 UTC). Volumes `segments` and `data`. `mem_limit: 512m` |
 
-1. `curl` `https://brouter.de/brouter/segments4/W90_N40.rd5` → atomic swap into the
-   `segments` volume, then restart `brouter`.
+**Weekly data refresh** (`data/refresh.sh`):
+
+1. `curl` `https://brouter.de/brouter/segments4/W90_N40.rd5` → atomic rename into the
+   `segments` volume. BRouter opens segment files per request, so no restart should be
+   needed (confirmed in Phase 0).
 2. `pmtiles extract <latest Protomaps daily build> <area>.v<N>.pmtiles --bbox=…`, once per
    area. The city bbox lies inside the metro bbox, so the city file is extracted from the
    new metro file locally rather than downloaded twice.
@@ -522,7 +533,7 @@ throwaway container):
 
 | Phase | Scope | Exit criteria |
 |---|---|---|
-| **0 · Spike** (1–2 days) | BRouter + `W90_N40.rd5` on the VPS; minimal `ebike.brf`; curl tests | Confirmed: `profile:` overrides work; voicehints and `messages` include the needed way and node tags; whether segments include street names; RAM ≤ 450 MB; p95 latency ≤ 400 ms; trail rules verified |
+| **0 · Spike** (1–2 days) | BRouter + `W90_N40.rd5` on the VPS; minimal `ebike.brf`; curl tests | Confirmed: `profile:` overrides work; voicehints and `messages` include the needed way and node tags; whether segments include street names; RAM ≤ 450 MB; first-route p95 ≤ 1.5 s; trail rules verified. Partly done in the cloud session, see §15 |
 | **1 · MVP** | First-launch area picker, map, search, A→B with alternatives, average speed on route cards, infrastructure-colored route, ranking UI, temperature offset (both modes), ETA model + tests, comparison sheet, PWA shell, deploy | Golden routes look sensible; NFR-1/2/3 met |
 | **2 · Navigation** | Turn-by-turn, voice, street-name resolution, rerouting, wake lock, ride recording | 5 real rides navigated end-to-end without a failed reroute |
 | **3 · Accuracy** | Calibration (§7.6); Chicago Data Portal bike-route conflation; tuning `t_signal`/`t_stop`, `flat_max` and the coverage heuristic from rides | G1 met on ≥ 10 recorded rides |
@@ -544,7 +555,7 @@ routing/
 data/
   refresh.sh         Weekly data refresh
   build-controls.mjs controls.bin builder
-  trail-rules.json   Path-specific e-bike rules and speed caps
+  trail-rules.json   Path-specific e-bike rules (Phase 3, needs custom .rd5)
 deploy/
   docker-compose.yml
   Caddyfile
@@ -565,3 +576,51 @@ docs/
 | Q4 | Photon public API rate limits or availability | Debounce, minimum 3 characters, recent-searches cache, Nominatim fallback for submitted queries |
 | Q5 | Update cadence of brouter.de segment downloads | If they go stale, build the `.rd5` locally from the clipped extract with BRouter's map-creator (feasible for this bbox, same as Phase 3) |
 | Q6 | GPS noise in the Loop's urban canyons | Accuracy gating, a longer off-route threshold when accuracy > 25 m, and progress constrained to move forward |
+
+---
+
+## 15. Phase 0 findings (2026-10-29, cloud session)
+
+Run against real data: `W90_N40.rd5` from brouter.de (79 MB, built 2026-10-29) with
+`routing/spike.mjs` on six Chicago trips. GitHub was unreachable from the session, so the
+engine was **BRouter 1.6.3** (the newest build on brouter.de) with the current v11
+`lookups.dat`. Production uses the current release (`routing/Dockerfile`), and the spike
+must be re-run there.
+
+| Check | Result |
+|---|---|
+| `profile:<var>=<value>` URL overrides | **Work.** Changing cost factors changes the route and cost |
+| `messages` columns (Longitude, Latitude, Elevation, Distance, WayTags, NodeTags) | Present. Longitude/Latitude are degrees × 1e6, as the parser assumes |
+| Way tags for classification | Present: `cycleway`, `cycleway:both/left/right`, `route_bicycle_lcn`, `surface`, `service=alley`, … |
+| Street names | **Absent** (`name` isn't in the lookup table). Names come from basemap tiles (§8.2) |
+| NodeTags | Present: `highway=traffic_signals`, `highway=crossing` + `crossing=traffic_signals`, `highway=stop` (+ `direction`) |
+| Voicehints | Present: `[geometryIndex, command, exit, distance, angle]` |
+| Geometry density | Every way node (~24 m mean spacing), so vertex matching of controls works |
+| RAM | ~210–230 MB resident with `-Xmx384m` |
+| First-route latency | p50 313 ms, **p95 1.86 s** (driven by a 24 km trip). Misses the 1.5 s target here; re-measure on the VPS |
+| Alternatives 1 / 2 | p95 3.9 s / 5.7 s |
+
+**Profile fixes the data forced:**
+
+- Unknown tag values are hard errors in BRouter, so the profile only uses values in the
+  lookup table (no `cycleway=separate`, `access=forestry`, …).
+- Chicago alleys (`service=alley`) were treated as quiet streets and attracted 2 km of a
+  10 km route. They now rank as `other`.
+- Ways without a `highway` tag (abandoned rail spurs) were routable. They are now blocked.
+- One-way `highway=cycleway` is now a protected lane, not a trail. This moved the
+  Logan Square → Loop route to 52% protected lane along Milwaukee Ave.
+- Signalized intersections carry 2–4 `crossing=traffic_signals` nodes, so every light was
+  being charged 3–4 times (30 charges on one 10 km trip). These nodes now get their own,
+  smaller cost (`node_cost_crossing_signal` = 80). That roughly halved latency and removed
+  the zig-zag routing (54 → 44 turn instructions).
+- BRouter's built-in HTTP server ends header lines with a bare `\n`. Caddy accepts that;
+  Node's `fetch` doesn't (the spike script uses the lenient parser).
+
+**Checked against the BRouter 1.7.10 source** (cloned; not built or run here): its
+`lookups.dat` is identical to the v11 table tested above, `profile:xxx` request parameters
+are supported, `alternativeidx` is optional, and HTTP headers end in `\r\n` (the bare `\n`
+issue is specific to 1.6.3). `routing/Dockerfile` builds 1.7.10 from source at that tag.
+
+**Open after Phase 0:** latency on the VPS with the current release; trail rules (Q3); the
+coverage heuristic (needs the Geofabrik extract, which was unreachable).
+

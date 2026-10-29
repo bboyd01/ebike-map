@@ -1,0 +1,4 @@
+node_modules/
+dist/
+*.rd5
+*.pmtiles

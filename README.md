@@ -15,7 +15,9 @@ Chicago area (city only, or city + collar suburbs), like Google Maps' bike mode 
 - **Choose your map on first launch:** Chicago city only, or Chicagoland (city + collar suburbs).
 - **Turn-by-turn navigation** with voice prompts and automatic rerouting.
 
-> Status: **spec phase.** See [`docs/SPEC.md`](docs/SPEC.md) for the full specification.
+> Status: **Phase 0 (spike).** The routing profile, deployment, data pipeline, and ETA
+> core are written. The spike ran on real Chicago data (13 of 14 checks pass; first-route
+> latency still needs measuring on the VPS). See [`docs/SPEC.md`](docs/SPEC.md) §15.
 
 ## Stack
 
@@ -25,7 +27,7 @@ Chicago area (city only, or city + collar suburbs), like Google Maps' bike mode 
 | Map | MapLibre GL JS + [Protomaps](https://protomaps.com) PMTiles (one static file per map area, no tile server) |
 | App | Vite + TypeScript + Preact, PWA via `vite-plugin-pwa` |
 | Geocoding | Photon (komoot) |
-| Hosting | Docker Compose on Coolify: `brouter` + `web` (Caddy), weekly data-refresh task |
+| Hosting | Docker Compose on Coolify: `brouter`, `web` (Caddy), `data` (weekly refresh) |
 
 No database and no custom API server. The ETA model and navigation run on the device.
 Target footprint is ≤ 700 MB RAM and ≤ 1.5 GB disk.
@@ -35,7 +37,7 @@ Target footprint is ≤ 700 MB RAM and ≤ 1.5 GB disk.
 ```
 apps/web/   PWA (UI, ETA model, navigation engine)
 routing/    BRouter profile + Dockerfile
-data/       Weekly data refresh, stop/signal "controls" builder, trail rules
+data/       Weekly data refresh, stop/signal "controls" builder
 deploy/     docker-compose.yml, Caddyfile
 docs/       SPEC.md
 ```
@@ -52,3 +54,27 @@ docs/       SPEC.md
 
 iOS doesn't give PWAs background GPS, so keep the screen on while navigating. The app
 requests a wake lock to do this.
+
+## Development
+
+```bash
+cd apps/web && npm ci && npm test
+```
+
+## Deploying on Coolify
+
+1. New resource → Docker Compose → this repo, compose file `deploy/docker-compose.yml`.
+2. Assign your domain to the `web` service (port 80). `brouter` and `data` need no domain.
+3. Deploy. On first start, `data` downloads the map data (expect 10–20 minutes) and
+   BRouter downloads its 79 MB segment file. Routes work once both finish.
+
+## Phase 0 spike
+
+Once BRouter is running, check the spec's assumptions with real Chicago trips:
+
+```bash
+docker run --rm --network <compose-network> -v "$PWD/routing:/s" node:22-alpine node /s/spike.mjs http://brouter:17777/brouter
+```
+
+`<compose-network>` is shown by `docker network ls` (Coolify names it after the resource).
+The script prints PASS/FAIL for each check and exits non-zero if any check fails.
