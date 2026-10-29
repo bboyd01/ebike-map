@@ -249,8 +249,7 @@ Used when the route passes through areas where stoplights and stop signs are map
 (§6.4 coverage):
 
 ```
-offset = level × ( n_signals × t_signal + n_stop × t_stop + n_allway × t_allway
-                   + Σ_inferred p_stop × t_stop )
+offset = level × ( n_signals × t_signal + n_stop × t_stop + n_allway × t_allway )
 ```
 
 | Constant | Meaning | Default (editable) |
@@ -258,10 +257,12 @@ offset = level × ( n_signals × t_signal + n_stop × t_stop + n_allway × t_all
 | `t_signal` | Worst-case wait at a stoplight | 50 s |
 | `t_stop` | Full stop at a stop sign (decel + stop + accel) | 8 s |
 | `t_allway` | All-way stop, including yielding | 10 s |
-| `p_stop` | Chance an inferred residential intersection has a stop sign (§6.4) | 0.7 |
 
 At the default T = 0.5 this works out to about 25 s per light and 4 s per stop sign, which
 is close to the average wait.
+
+Only controls that are actually tagged in OpenStreetMap are counted. **Nothing is
+guessed:** an intersection without a mapped light or stop sign adds no time in this mode.
 
 ### 6.3 Mode B: flat percentage (controls are not known)
 
@@ -289,17 +290,13 @@ It contains:
 
 - **Tagged controls:** nodes with `highway=traffic_signals`, `highway=stop` (including
   `stop=all`), `highway=give_way`, and `crossing=traffic_signals`.
-- **Inferred stops:** junction nodes where ≥ 2 ways with `highway ∈ {residential,
-  living_street, unclassified}` meet, no tagged control within 25 m, and not a dead end.
-  Each counts as `p_stop` of a stop sign. This matters in Chicago, where the residential
-  grid is stop-controlled at most intersections but OSM stop-sign tagging is patchy.
 - **Per node:** lat/lon (int32 microdegrees, delta-encoded), type (u8), all-way flag.
 - **Coverage grid:** 1 km cells, each flagged *covered* if it has at least 1 tagged
   signal per 3 arterial×arterial junctions. That ratio is a heuristic for whether the
-  signals in that cell are mapped, and it gets tuned in Phase 0 against the city, where
-  signal tagging is known to be good.
+  signals in that cell are mapped (it decides which mode to use, not where controls are).
+  It gets tuned in Phase 0 against parts of the city where the mapping can be checked.
 
-Expected size: about 60k nodes for Chicagoland, ~25k for the city; ~200 KB / ~90 KB
+Expected size: roughly 15k nodes for Chicagoland and 6k for the city, so tens of KB
 compressed. The file is lazy-loaded after first paint and cached by the service worker.
 A control counts toward a route when the node lies within 8 m of the route polyline.
 
@@ -528,7 +525,7 @@ throwaway container):
 | **0 · Spike** (1–2 days) | BRouter + `W90_N40.rd5` on the VPS; minimal `ebike.brf`; curl tests | Confirmed: `profile:` overrides work; voicehints and `messages` include the needed way and node tags; whether segments include street names; RAM ≤ 450 MB; p95 latency ≤ 400 ms; trail rules verified |
 | **1 · MVP** | First-launch area picker, map, search, A→B with alternatives, average speed on route cards, infrastructure-colored route, ranking UI, temperature offset (both modes), ETA model + tests, comparison sheet, PWA shell, deploy | Golden routes look sensible; NFR-1/2/3 met |
 | **2 · Navigation** | Turn-by-turn, voice, street-name resolution, rerouting, wake lock, ride recording | 5 real rides navigated end-to-end without a failed reroute |
-| **3 · Accuracy** | Calibration (§7.6); Chicago Data Portal bike-route conflation; custom `.rd5` build with inferred stops; tuning `p_stop`, `t_signal`/`t_stop`, `flat_max` and the coverage heuristic from rides | G1 met on ≥ 10 recorded rides |
+| **3 · Accuracy** | Calibration (§7.6); Chicago Data Portal bike-route conflation; tuning `t_signal`/`t_stop`, `flat_max` and the coverage heuristic from rides | G1 met on ≥ 10 recorded rides |
 | **4 · Polish** | Saved places, bike-infrastructure overlay layer, shareable route links, presets | n/a |
 
 ---
@@ -562,7 +559,7 @@ docs/
 | # | Item | Mitigation |
 |---|---|---|
 | Q1 | OSM bike-infrastructure tagging completeness, especially in the suburbs | Phase 3 Data Portal conflation; route coloring makes gaps visible |
-| Q2 | Accuracy of stop-sign inference on the residential grid | Calibrate `p_stop` from recorded rides; allow per-area overrides |
+| Q2 | Stop signs missing from OSM make count mode under-estimate the offset, since nothing is guessed | The route card shows the counts, so gaps are visible; the rider can lower the slider's assertiveness, or the gaps can be fixed in OSM directly |
 | Q2b | The coverage heuristic (§6.4) may mark a cell "covered" when its signals are only partly mapped, which undercounts the offset | Tune against the city in Phase 0; the route card shows the counts, so an undercount is visible |
 | Q3 | E-bike class rules on specific paths (Lakefront Trail, 606, Forest Preserves, suburban park districts) | Verify current ordinances in Phase 0 before encoding them in `trail-rules.json`; keep the rules user-overridable |
 | Q4 | Photon public API rate limits or availability | Debounce, minimum 3 characters, recent-searches cache, Nominatim fallback for submitted queries |
