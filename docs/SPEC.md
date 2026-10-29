@@ -70,7 +70,7 @@ The stack is chosen to stay lean: **no database, no custom API server, two conta
 | Geocoding | **Photon** (`photon.komoot.io`) with bbox + location bias | Free and supports autocomplete. Self-hosting needs Elasticsearch-scale resources, which this VPS doesn't have. Nominatim is a fallback for one-off lookups only, because its usage policy forbids autocomplete. |
 | Voice | Web Speech API (`speechSynthesis`) | Built in, free, works offline. |
 | Edge / static | **Caddy** container | Serves the app, PMTiles, and data files. Reverse-proxies `/route` to BRouter (BRouter itself is never exposed) and rate-limits. Sits behind Coolify's Traefik. |
-| Data refresh | Small `data` container running `crond` weekly (shell script) | Downloads the prebuilt `W90_N40.rd5` from brouter.de, re-extracts the PMTiles for both areas, and rebuilds the controls files (§6.4). |
+| Data refresh | Small `data` container (shell scripts, weekly sleep loop) | Downloads the prebuilt `W90_N40.rd5` from brouter.de, re-extracts the PMTiles for both areas, and rebuilds the controls files (§6.4). |
 | Client storage | `localStorage` (settings), IndexedDB (saved places, ride recordings, calibration) | No accounts. Export/import as JSON. |
 
 ### 2.1 Why BRouter over the alternatives
@@ -89,7 +89,7 @@ The stack is chosen to stay lean: **no database, no custom API server, two conta
 |---|---|---|
 | BRouter (`-Xmx384m`) | ≤ 450 MB | ~80 MB (`W90_N40.rd5`, 79 MB as of Oct 2026) |
 | Caddy | ≤ 40 MB | app ≈ 2 MB, PMTiles ≈ 130–260 MB (both areas), controls ≈ 0.7 MB |
-| `data` service (idle `crond`; weekly refresh) | ~5 MB idle, ≤ 512 MB while refreshing | ~400 MB scratch (Illinois `.osm.pbf`), deleted afterwards |
+| `data` service (idle; weekly refresh) | ~5 MB idle, ≤ 512 MB while refreshing | ~400 MB scratch (Illinois `.osm.pbf`), deleted afterwards |
 
 ---
 
@@ -513,7 +513,7 @@ Per route:
 | `brouter` | Built from `routing/Dockerfile` (BRouter release jar + `ebike.brf`) | `JAVA_OPTS=-Xmx384m`, volume `segments:/segments4`, internal network only, `mem_limit: 512m` |
 | `web` | Caddy + built app (multi-stage: `node` build → `caddy:alpine`) | Volume `data:/srv/data` for PMTiles + controls. Proxies `/route` → `brouter:17777/brouter`. Rate limit 30 req/min/IP on `/route` (caddy-ratelimit). `mem_limit: 64m` |
 
-| `data` | Built from `data/Dockerfile` (node + osmium-tool + pmtiles CLI) | Runs `data/refresh.sh` once at first start if `/srv/data` is empty, then weekly from `crond` (Mondays 09:17 UTC). Volumes `segments` and `data`. `mem_limit: 512m` |
+| `data` | Built from `data/Dockerfile` (Debian: node + osmium-tool + pmtiles CLI) | `data/schedule.sh` runs `data/refresh.sh` once at first start if `/srv/data` is empty (retrying hourly), then Mondays 09:17 UTC. Volumes `segments` and `data`. `mem_limit: 512m` |
 
 **Weekly data refresh** (`data/refresh.sh`):
 

@@ -2,6 +2,7 @@
 # Built from source at a pinned release tag (same steps as upstream's Dockerfile).
 FROM gradle:jdk17-jammy AS build
 ARG BROUTER_TAG=v1.7.10
+RUN command -v git >/dev/null || (apt-get update && apt-get install -y --no-install-recommends git)
 RUN git clone --depth 1 --branch "$BROUTER_TAG" https://github.com/abrensch/brouter /src
 WORKDIR /src
 # Use the project's Gradle wrapper (pins the Gradle version BRouter expects).
