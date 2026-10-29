@@ -38,7 +38,7 @@ Target footprint is ≤ 700 MB RAM and ≤ 1.5 GB disk.
 apps/web/   PWA (UI, ETA model, navigation engine)
 routing/    BRouter profile + Dockerfile
 data/       Weekly data refresh, stop/signal "controls" builder
-deploy/     docker-compose.yml, Caddyfile
+deploy/     Caddyfile, web image (docker-compose.yml is at the repo root)
 docs/       SPEC.md
 ```
 
@@ -63,7 +63,7 @@ cd apps/web && npm ci && npm test
 
 ## Deploying on Coolify
 
-1. New resource → Docker Compose → this repo, compose file `deploy/docker-compose.yml`.
+1. New resource → Docker Compose → this repo. Keep the defaults: base directory `/`, compose file `/docker-compose.yml`.
 2. Assign your domain to the `web` service (port 80). `brouter` and `data` need no domain.
 3. Deploy. On first start, `data` downloads the map data (expect 10–20 minutes) and
    BRouter downloads its 79 MB segment file. Routes work once both finish.

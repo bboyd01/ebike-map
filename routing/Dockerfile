@@ -4,7 +4,8 @@ FROM gradle:jdk17-jammy AS build
 ARG BROUTER_TAG=v1.7.10
 RUN git clone --depth 1 --branch "$BROUTER_TAG" https://github.com/abrensch/brouter /src
 WORKDIR /src
-RUN gradle :brouter-server:fatJar --no-daemon -q \
+# Use the project's Gradle wrapper (pins the Gradle version BRouter expects).
+RUN ./gradlew :brouter-server:fatJar --no-daemon -q \
  && cp brouter-server/build/libs/brouter-*-all.jar /brouter.jar
 
 FROM eclipse-temurin:21-jre-alpine
