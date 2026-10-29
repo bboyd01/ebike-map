@@ -1,6 +1,6 @@
 # ebike-map — Product & Technical Specification
 
-Status: **Draft v0.1** · Scope: v1 (Chicago + collar suburbs) · Last updated: 2026-10-29
+Status: **Draft v0.2** · Scope: v1 (Chicago city, or city + collar suburbs; chosen on first launch) · Last updated: 2026-10-29
 
 ---
 
@@ -14,8 +14,11 @@ the style of Google Maps' bike mode but built around how e-bikes actually move:
 - **Granular street-type preferences.** The rider drag-orders infrastructure types
   (shared lane, painted lane, protected lane, trail, greenway, quiet street, …), and
   the router follows that order.
-- **A "temperature" setting.** It controls how by-the-book the rider is at stop signs and
-  turns. It changes the route choice and the ETA together, so the two stay consistent.
+- **A "temperature" setting.** A simple time buffer for stoplights and stop signs added to
+  the ETA. It is based on the number of lights and stop signs on the route when those are
+  mapped, and on a flat 0–50% of travel time when they aren't.
+- **Average speed shown with every ETA**, so the rider can see the speed the arrival time
+  assumes.
 - **Turn-by-turn navigation** with voice, rerouting, and a heading-up map.
 
 ### 1.1 Goals
@@ -32,12 +35,24 @@ the style of Google Maps' bike mode but built around how e-bikes actually move:
 Car or transit modes · user accounts or cloud sync · coverage outside the Chicago bbox
 · native iOS/Android apps · traffic-aware routing · social features.
 
-### 1.3 Coverage
+### 1.3 Coverage (map areas)
 
-Bounding box (city + collar suburbs, slightly padded):
-`west -88.45, south 41.45, east -87.50, north 42.35`.
-This covers Cook, DuPage, and parts of Lake, Kane, and Will counties. It can be widened
-later without changing the architecture.
+The rider picks a **map area on first launch** and can change it later in Settings:
+
+| Area | Bounding box (W, S, E, N) | Basemap size (est.) | Notes |
+|---|---|---|---|
+| **Chicago (city)** (default) | `-87.95, 41.64, -87.52, 42.03` | ~30–60 MB | City limits plus a small pad: O'Hare to the lake, Howard St to 138th St |
+| **Chicagoland** | `-88.45, 41.45, -87.50, 42.35` | ~100–200 MB | Adds the collar suburbs: Cook, DuPage, parts of Lake, Kane, and Will |
+
+What the area controls: which basemap file and controls file are loaded, the geocoding
+bbox, and where origins and destinations may be placed. The server keeps both areas,
+since the city files only add about 50 MB, and switching areas is instant.
+
+The map streams tiles on demand via range requests, so the smaller city area **doesn't
+make the first load much faster**. Its benefits are smaller downloads for offline use
+(Phase 4), faster weekly refreshes, and search results that stay inside the city.
+Routing uses the same BRouter data file for both areas. More areas can be added later
+without changing the architecture.
 
 ---
 
@@ -48,14 +63,14 @@ The stack is chosen to stay lean: **no database, no custom API server, two conta
 | Layer | Choice | Rationale |
 |---|---|---|
 | Routing engine | **[BRouter](https://github.com/abrensch/brouter)** (Java, self-hosted Docker) | Purpose-built for bikes. Its profile scripting language costs ways and nodes on raw OSM tags (`cycleway=track` vs `lane` vs `shared_lane`, `highway=stop`, `traffic_signals`, surface, …). Profile variables can be overridden per request (`profile:<var>=<value>`), so one profile serves every user setting. Returns turn instructions ("voicehints"), elevation, per-segment tags, and alternative routes. One 5°×5° segment file (`W90_N40.rd5`) covers all of Chicagoland. Low memory use. |
-| Basemap tiles | **[Protomaps](https://protomaps.com) PMTiles** extract of the bbox | One static file served with HTTP range requests, so no tile server process. Vector tiles. Roughly 100–200 MB for this bbox. |
+| Basemap tiles | **[Protomaps](https://protomaps.com) PMTiles** extract per map area (§1.3) | One static file per area, served with HTTP range requests, so no tile server process. Vector tiles. Roughly 30–60 MB (city) and 100–200 MB (Chicagoland). |
 | Map renderer | **MapLibre GL JS** + `pmtiles` protocol plugin | Vector rendering, smooth rotation and pitch for a heading-up navigation camera. |
 | UI framework | **Vite + TypeScript + Preact** (+ `@preact/signals`) | About 4 KB runtime, fast builds, a familiar component model. |
 | PWA | `vite-plugin-pwa` (Workbox) | Precached app shell, installable, works offline for UI and settings. |
 | Geocoding | **Photon** (`photon.komoot.io`) with bbox + location bias | Free and supports autocomplete. Self-hosting needs Elasticsearch-scale resources, which this VPS doesn't have. Nominatim is a fallback for one-off lookups only, because its usage policy forbids autocomplete. |
 | Voice | Web Speech API (`speechSynthesis`) | Built in, free, works offline. |
 | Edge / static | **Caddy** container | Serves the app, PMTiles, and data files. Reverse-proxies `/route` to BRouter (BRouter itself is never exposed) and rate-limits. Sits behind Coolify's Traefik. |
-| Data refresh | Weekly Coolify scheduled task (shell script) | Downloads the prebuilt `W90_N40.rd5` from brouter.de, re-extracts the PMTiles, and rebuilds `controls.bin` (§6.3). |
+| Data refresh | Weekly Coolify scheduled task (shell script) | Downloads the prebuilt `W90_N40.rd5` from brouter.de, re-extracts the PMTiles for both areas, and rebuilds the controls files (§6.4). |
 | Client storage | `localStorage` (settings), IndexedDB (saved places, ride recordings, calibration) | No accounts. Export/import as JSON. |
 
 ### 2.1 Why BRouter over the alternatives
@@ -73,7 +88,7 @@ The stack is chosen to stay lean: **no database, no custom API server, two conta
 | Component | RAM | Disk |
 |---|---|---|
 | BRouter (`-Xmx384m`) | ≤ 450 MB | ~300 MB (`W90_N40.rd5`) |
-| Caddy | ≤ 40 MB | app ≈ 2 MB, PMTiles ≈ 100–200 MB, controls ≈ 0.5 MB |
+| Caddy | ≤ 40 MB | app ≈ 2 MB, PMTiles ≈ 130–260 MB (both areas), controls ≈ 0.7 MB |
 | Data-refresh job (transient, weekly) | ≤ 300 MB while running | ~400 MB scratch (Illinois `.osm.pbf`), deleted afterwards |
 
 ---
@@ -86,7 +101,7 @@ The stack is chosen to stay lean: **no database, no custom API server, two conta
  │ Preact UI + MapLibre     │──────────▶│ Caddy ("web")                        │
  │  • settings → profile    │           │  /            → static app (immutable)│
  │    params                │           │  /tiles/*.pmtiles → range requests   │
- │  • ETA model (client)    │           │  /data/controls.v<N>.bin             │
+ │  • ETA model (client)    │           │  /data/<area>.controls.v<N>.bin      │
  │  • navigation engine     │           │  /route       → brouter:17777 (int.) │
  │  • IndexedDB rides       │           └──────────────┬───────────────────────┘
  └──────────┬───────────────┘                          │ internal network
@@ -99,13 +114,15 @@ The stack is chosen to stay lean: **no database, no custom API server, two conta
 
 **Request flow (route):**
 
-1. The client converts settings into BRouter profile params (§5.4, §6.2).
+1. The client converts settings into BRouter profile params (§5.4).
 2. It sends `GET /route?lonlats=…&profile=ebike&alternativeidx=0..2&format=geojson&timode=<n>&profile:cf_trail=…`.
    The three alternatives are fetched in parallel.
 3. BRouter returns GeoJSON: geometry with elevation, a `messages` table (per-segment
    distance, way and node tags, costs), and `voicehints`.
-4. The client's **ETA model** (§7) computes time per segment, then adds intersection
-   delays from `controls.bin` and turn penalties. **BRouter's own time estimate is ignored.**
+4. The client's **ETA model** (§7) computes the moving time per segment and adds turn
+   losses. It then adds the temperature offset (§6), counted from the controls file
+   where controls are mapped and as a flat percentage elsewhere.
+   **BRouter's own time estimate is ignored.**
 5. The client ranks the alternatives (§5.5) and shows them on a comparison sheet.
 
 ---
@@ -113,19 +130,20 @@ The stack is chosen to stay lean: **no database, no custom API server, two conta
 ## 4. Functional requirements
 
 ### 4.1 Map & search
-- **FR-1** Full-screen vector map of the coverage bbox. The map starts at the last viewport, or at the user's location if permission is granted.
-- **FR-2** Search box with autocomplete (Photon, 250 ms debounce, bbox-restricted, biased to the map center). Keeps a recent-searches list (last 20, stored locally).
+- **FR-0** First-launch screen: choose the map area, either "Chicago (city)" or "Chicagoland" (§1.3), with the size of each shown. The choice can be changed in Settings.
+- **FR-1** Full-screen vector map of the selected area. The map starts at the last viewport, or at the user's location if permission is granted.
+- **FR-2** Search box with autocomplete (Photon, 250 ms debounce, restricted to the selected area's bbox, biased to the map center). Keeps a recent-searches list (last 20, stored locally).
 - **FR-3** Long-press on the map sets an origin or destination. "My location" is the default origin.
 - **FR-4** Up to 3 intermediate waypoints, drag-reorderable.
 
 ### 4.2 Routing
-- **FR-5** Compute up to 3 alternative routes, each showing ETA, distance, % of distance by infrastructure class (stacked bar), stop and signal count, and climb.
+- **FR-5** Compute up to 3 alternative routes. Each shows ETA, arrival clock time, **average speed** (§7.5), distance, % of distance by infrastructure class (stacked bar), light and stop-sign count (or "estimated +N%" in flat mode, §6.3), and climb.
 - **FR-6** The route line is colored by infrastructure class, so the rider can see where it uses shared lanes, protected lanes, and so on.
 - **FR-7** Settings changes recompute the route immediately, using the same endpoints.
 - **FR-8** "Depart at" is out of scope for v1. ETAs assume the current time with no traffic.
 
 ### 4.3 Navigation
-- **FR-9** Turn-by-turn mode: heading-up camera, next-maneuver banner (arrow, street name, distance), remaining time, distance, and arrival clock time.
+- **FR-9** Turn-by-turn mode: heading-up camera, next-maneuver banner (arrow, street name, distance), remaining time, distance, arrival clock time, and average speed (the remaining-route speed the arrival time assumes, plus the actual average so far).
 - **FR-10** Voice prompts (toggleable) at an advance distance, a near distance, and at the maneuver (§8.2).
 - **FR-11** Automatic rerouting when off-route (§8.3).
 - **FR-12** Keeps the screen awake during navigation (Screen Wake Lock API).
@@ -206,70 +224,92 @@ alternative's tradeoff ("2 min faster", "+18% protected").
 
 ---
 
-## 6. Temperature
+## 6. Temperature (stop-delay offset)
 
 ### 6.1 Definition
 
-`T ∈ [0.0, 1.0]`, default **0.2**. 0 is fully by the book; 1 is assertive. Illinois has no
-"Idaho stop" law, so the default sits near law-abiding. The UI shows this as a slider
-labeled *"By the book ↔ Assertive"*.
+Temperature is a simple **time offset added on top of the moving time**. It doesn't change
+how the bike's speed is modeled and doesn't change which route BRouter picks.
 
-Temperature only changes how *stop signs* and *turns* are modeled. **Traffic signals are
-never discounted**: red-light behavior is not modeled as optional.
+`T ∈ [0.0, 1.0]`, default **0.5**. The UI shows it as a slider labeled
+*"Cautious (more buffer) ↔ Assertive (no buffer)"*. The offset shrinks linearly as T
+rises: `level = 1 − T`.
 
-### 6.2 Effects (interpolated linearly in T)
+- **T = 0** (cautious): the maximum offset. In count mode this assumes you catch every
+  light at the start of its red and come to a full stop at every stop sign.
+- **T = 0.5** (default): roughly an average day.
+- **T = 1** (assertive): no offset; the ETA is moving time plus turn losses only.
 
-| Parameter | T = 0 | T = 1 | Used by |
-|---|---|---|---|
-| `v_stop_min`: min speed through a stop sign | 0 m/s (full stop) | 4 m/s (~9 mph roll) | ETA |
-| `dwell_stop`: time stationary at a stop | 2.0 s | 0 s | ETA |
-| All-way stop extra dwell (yielding to others) | +1.5 s | +0.5 s | ETA |
-| Turn speed scale (fraction of geometric max) | 0.75 | 1.0 | ETA |
-| `node_cost_stop` (BRouter, meters-equivalent) | 120 | 30 | Routing |
-| `node_cost_signal` | 250 | 250 | Routing |
+The offset is computed in one of two modes, depending on whether the stop controls
+along the route are known. One route can mix both modes (§6.3).
 
-**Stop delay** follows from kinematics rather than a fixed constant. For cruise speed `v`,
-deceleration `a_d` (1.5 m/s²) and acceleration `a_a` (derived from motor power, §7.4):
+### 6.2 Mode A: count-based (controls are known)
+
+Used when the route passes through areas where stoplights and stop signs are mapped
+(§6.4 coverage):
 
 ```
-delay_stop = (v − v_min)² / (2·v) · (1/a_d + 1/a_a) + dwell
+offset = level × ( n_signals × t_signal + n_stop × t_stop + n_allway × t_allway
+                   + Σ_inferred p_stop × t_stop )
 ```
 
-At 18 mph (8 m/s) and a_a = 1.2 m/s²: **T=0 ≈ 8.0 s** (6.0 s of decel/accel loss + 2 s dwell), **T=1 ≈ 1.5 s**.
-
-**Signal delay** (independent of T):
-`delay_signal = p_red × (red_len / 2 + delay_stop(T=0) − dwell)`.
-The defaults depend on approach:
-
-| Approach | p_red | red_len |
+| Constant | Meaning | Default (editable) |
 |---|---|---|
-| Crossing a higher-class road (minor approach) | 0.60 | 55 s |
-| Along the major road | 0.35 | 35 s |
-| Equal classes | 0.50 | 45 s |
+| `t_signal` | Worst-case wait at a stoplight | 50 s |
+| `t_stop` | Full stop at a stop sign (decel + stop + accel) | 8 s |
+| `t_allway` | All-way stop, including yielding | 10 s |
+| `p_stop` | Chance an inferred residential intersection has a stop sign (§6.4) | 0.7 |
 
-### 6.3 Controls file (`controls.bin`)
+At the default T = 0.5 this works out to about 25 s per light and 4 s per stop sign, which
+is close to the average wait.
 
-Built weekly from the Geofabrik Illinois extract, clipped to the bbox (`osmium extract`),
-by a small Node script in `data/`. It contains:
+### 6.3 Mode B: flat percentage (controls are not known)
+
+Used when the route passes through areas where controls aren't mapped well, or if the
+controls file hasn't loaded yet:
+
+```
+offset = level × flat_max × moving_time        flat_max default 0.50 (50%), editable 0–50%
+```
+
+At the default T = 0.5 this adds 25% to the moving time.
+
+**Mixed routes:** the route is split by coverage cell. Count-based offsets apply to the
+portions in covered cells and the flat percentage applies to the moving time of the rest,
+so a route from the city out to a poorly mapped suburb is handled sensibly.
+
+The route card shows which mode was used ("12 lights · 18 stop signs" or "estimated
++25%"), so the rider knows how the buffer was calculated.
+
+### 6.4 Controls file (`controls.bin`) and coverage
+
+Built weekly from the Geofabrik Illinois extract, clipped to the selected area's bbox
+(`osmium extract`), by a small Node script in `data/`. One file is built per map area (§1.3).
+It contains:
 
 - **Tagged controls:** nodes with `highway=traffic_signals`, `highway=stop` (including
   `stop=all`), `highway=give_way`, and `crossing=traffic_signals`.
 - **Inferred stops:** junction nodes where ≥ 2 ways with `highway ∈ {residential,
   living_street, unclassified}` meet, no tagged control within 25 m, and not a dead end.
-  These carry a probability `p_stop` (default 0.7, calibrated in Phase 3). This matters
-  in Chicago, where the residential grid is stop-controlled at most intersections but
-  OSM stop-sign tagging is patchy.
-- **Per node:** lat/lon (int32 microdegrees, delta-encoded), type (u8), highest crossing
-  road class (u8), all-way flag.
+  Each counts as `p_stop` of a stop sign. This matters in Chicago, where the residential
+  grid is stop-controlled at most intersections but OSM stop-sign tagging is patchy.
+- **Per node:** lat/lon (int32 microdegrees, delta-encoded), type (u8), all-way flag.
+- **Coverage grid:** 1 km cells, each flagged *covered* if it has at least 1 tagged
+  signal per 3 arterial×arterial junctions. That ratio is a heuristic for whether the
+  signals in that cell are mapped, and it gets tuned in Phase 0 against the city, where
+  signal tagging is known to be good.
 
-Expected size: about 60k nodes, ~500 KB raw and ~200 KB compressed. The file is
-lazy-loaded after first paint and cached by the service worker. Matching a control to the
-route: the node lies within 8 m of the route polyline, and a road-class change happens
-at that node or the route turns there.
+Expected size: about 60k nodes for Chicagoland, ~25k for the city; ~200 KB / ~90 KB
+compressed. The file is lazy-loaded after first paint and cached by the service worker.
+A control counts toward a route when the node lies within 8 m of the route polyline.
 
-**Known limitation (v1):** BRouter only sees *tagged* stop signs, so inferred stops affect
-the ETA and the alternative ranking (§5.5) but not BRouter's path search. Phase 3 fixes this
-by building a custom `.rd5` with the inferred `highway=stop` tags injected (§12).
+### 6.5 Effect on routing
+
+The offset only affects the ETA. BRouter keeps **fixed** node costs for tagged lights
+and stop signs (`node_cost_signal` 250, `node_cost_stop` 60, in meters-equivalent), so
+routes still mildly avoid stoplights no matter where the slider is. The alternatives
+ranking (§5.5) uses the ETA including the offset, so in count mode the routes with fewer
+lights rank higher.
 
 ---
 
@@ -330,35 +370,47 @@ noise before grades are computed.
 
 ### 7.4 Intersections and turns
 
-- **Stops and signals:** §6.2 formulas, using controls matched along the route (§6.3).
-  Inferred stops add `p_stop × delay_stop`.
-- **Launch acceleration:** `a_a = clamp(η·P_motor / (m · v_avg_launch), 0.6, 1.8)` m/s²
+- **Stops and signals:** not part of the moving time. They're covered by the temperature
+  offset (§6), which is added after the moving time is computed.
+- **Launch acceleration** (used for turn losses): `a_a = clamp(η·P_motor / (m · v_avg_launch), 0.6, 1.8)` m/s²
   with `v_avg_launch = v/2`. A throttle adds +0.2 (an instant launch).
 - **Turns:** from each voicehint's angle `α`, take the geometric max speed
   `v_turn = sqrt(μ·g·R(α))` with R from a lookup table (90° city corner ≈ 6 m, 135° ≈ 4 m,
-  μ = 0.5), scaled by the temperature turn factor. The time loss uses the same decel/accel
-  formula as a stop, with `v_min = v_turn` and zero dwell.
-- **Left turns at signals** from a lane or shared-lane street: + 0.5 × red_len × p_red
-  (two-stage turn or waiting for a gap).
+  μ = 0.5), scaled by 0.85 for comfort. The time loss for slowing from `v` to `v_turn`
+  and speeding back up is `(v − v_turn)² / (2·v) · (1/a_d + 1/a_a)`, with `a_d` = 1.5 m/s².
+- **Left turns at signals** count as 1.5 lights in count mode, to cover a two-stage turn
+  or waiting for a gap.
 
 ### 7.5 Output
 
-Per route: total ETA; breakdown into moving time, stop time, signal time, and turn loss;
-per-segment predicted speed (stored for live re-estimation during navigation).
+Per route:
+
+- **Total ETA** = moving time + turn loss + temperature offset, and the arrival clock time.
+- **Average speed** = distance ÷ total ETA. It's shown next to every ETA, e.g.
+  `24 min · arrive 5:42 PM · avg 14.2 mph`. The route details also show the **moving
+  average** (distance ÷ moving time, e.g. `17.1 mph moving`), so the rider can see how much
+  of the gap comes from stops.
+- **Breakdown:** moving time, turn loss, and offset. The offset shows its mode and inputs
+  ("12 lights · 18 stop signs · +6 min", or "estimated +25% · +5 min").
+- **Per-segment predicted speed**, stored for live re-estimation during navigation.
 
 ### 7.6 Personal calibration (Phase 3)
 
 1. Recorded rides (FR-13) are map-matched to the route that was navigated.
 2. For each class, compute `ratio = actual_moving_time / predicted_moving_time`, using
-   only segments without a stop or signal. Intersection delays are calibrated separately
-   from the dwell time observed near matched controls.
+   only segments without a stop or signal.
+   The offset is calibrated separately. In count mode, the time lost near matched
+   lights and stop signs updates `t_signal` and `t_stop` (shown as the value at T = 0).
+   In flat mode, the observed time lost at stops in uncovered areas suggests a value for
+   `flat_max`. Both are suggestions the rider accepts in Settings; they never change silently.
 3. Maintain an EWMA per class (α = 0.2, minimum 2 km of data before applying), clamped to
    [0.7, 1.4]. Apply it as a post-multiplier on that class's moving time.
 4. Settings show "ETA learned from N rides", with a reset button.
 
 ### 7.7 Validation
 
-- Unit tests: the power solver against hand-computed cases; stop-delay kinematics; the
+- Unit tests: the power solver against hand-computed cases; both offset modes, including
+  mixed coverage and the T = 0 and T = 1 endpoints; average-speed math; the
   cutoff behavior, where Class 3 on the flat must not exceed `v_cruise`.
 - Golden routes: 10 fixed Chicago O/D pairs (e.g. Logan Square → Loop via Milwaukee Ave,
   Hyde Park → Loop via the Lakefront Trail, Evanston → Lincoln Park). The ETA is snapshot-tested
@@ -420,9 +472,12 @@ per-segment predicted speed (stored for live re-estimation during navigation).
 | Route | Pickiness `s` | 0.20 |
 | Route | Max detour | +25% |
 | Route | Avoid unpaved / rough / dismount / unsignalized arterial crossings | on / on / on / on |
-| Behavior | Temperature | 0.2 |
+| Behavior | Temperature (offset level = 1 − T) | 0.5 |
+| Behavior | Worst-case wait per light / stop sign / all-way stop (`t_signal` / `t_stop` / `t_allway`) | 50 s / 8 s / 10 s |
+| Behavior | Flat offset at T = 0 (`flat_max`, used where controls aren't mapped) | 50% (range 0–50%) |
 | Behavior | Trail speed cap | 15 mph |
 | Behavior | Descent cap | 25 mph |
+| Map | Map area | Chosen on first launch (Chicago city suggested) |
 | Nav | Voice | on |
 | Nav | Units | Imperial |
 | Nav | Record rides for calibration | off (opt-in) |
@@ -436,7 +491,7 @@ per-segment predicted speed (stored for live re-estimation during navigation).
 | NFR-1 | JS shell ≤ 60 KB gzip, excluding MapLibre (~220 KB gzip, loaded in parallel and cached). No other runtime dependencies over 10 KB without justification. |
 | NFR-2 | First load ≤ 1.5 s (Moto G-class device, 4G); repeat load ≤ 0.5 s; time-to-interactive map ≤ 2 s. |
 | NFR-3 | Route request p95 ≤ 400 ms server-side for trips ≤ 30 km; full client pipeline (3 alternatives + ETA) ≤ 800 ms. |
-| NFR-4 | Static assets use content-hashed names and `Cache-Control: public, max-age=31536000, immutable`. Data files are versioned (`controls.v<N>.bin`, `chicago.v<N>.pmtiles`) and `index.html` is `no-cache`. |
+| NFR-4 | Static assets use content-hashed names and `Cache-Control: public, max-age=31536000, immutable`. Data files are versioned per area (`<area>.controls.v<N>.bin`, `<area>.v<N>.pmtiles`, where area is `city` or `metro`) and `index.html` is `no-cache`. |
 | NFR-5 | Privacy: no analytics and no third-party calls except Photon geocoding. Ride recordings never leave the device unless the user exports them. |
 | NFR-6 | Accessibility: WCAG AA contrast, large tap targets (≥ 48 px) for in-ride use, and a dark mode that follows the system setting. |
 | NFR-7 | Resilience: if BRouter is unreachable, show the last computed route and a clear error. The UI stays usable offline. |
@@ -457,10 +512,12 @@ throwaway container):
 
 1. `curl` `https://brouter.de/brouter/segments4/W90_N40.rd5` → atomic swap into the
    `segments` volume, then restart `brouter`.
-2. `pmtiles extract <latest Protomaps daily build> chicago.v<N>.pmtiles --bbox=…`.
-3. Download the Geofabrik `illinois-latest.osm.pbf` → `osmium extract --bbox` →
-   `node data/build-controls.mjs` → `controls.v<N>.bin`. Write `data/manifest.json`
-   with the new versions, then clean up the scratch files.
+2. `pmtiles extract <latest Protomaps daily build> <area>.v<N>.pmtiles --bbox=…`, once per
+   area. The city bbox lies inside the metro bbox, so the city file is extracted from the
+   new metro file locally rather than downloaded twice.
+3. Download the Geofabrik `illinois-latest.osm.pbf` → `osmium extract --bbox` (per area) →
+   `node data/build-controls.mjs` → `<area>.controls.v<N>.bin`. Write `data/manifest.json`
+   with the new versions per area, then clean up the scratch files.
 
 ---
 
@@ -469,9 +526,9 @@ throwaway container):
 | Phase | Scope | Exit criteria |
 |---|---|---|
 | **0 · Spike** (1–2 days) | BRouter + `W90_N40.rd5` on the VPS; minimal `ebike.brf`; curl tests | Confirmed: `profile:` overrides work; voicehints and `messages` include the needed way and node tags; whether segments include street names; RAM ≤ 450 MB; p95 latency ≤ 400 ms; trail rules verified |
-| **1 · MVP** | Map, search, A→B with alternatives, infrastructure-colored route, ranking UI, temperature, ETA model + tests, comparison sheet, PWA shell, deploy | Golden routes look sensible; NFR-1/2/3 met |
+| **1 · MVP** | First-launch area picker, map, search, A→B with alternatives, average speed on route cards, infrastructure-colored route, ranking UI, temperature offset (both modes), ETA model + tests, comparison sheet, PWA shell, deploy | Golden routes look sensible; NFR-1/2/3 met |
 | **2 · Navigation** | Turn-by-turn, voice, street-name resolution, rerouting, wake lock, ride recording | 5 real rides navigated end-to-end without a failed reroute |
-| **3 · Accuracy** | Calibration (§7.6); Chicago Data Portal bike-route conflation; custom `.rd5` build with inferred stops; tuning `p_stop` from rides | G1 met on ≥ 10 recorded rides |
+| **3 · Accuracy** | Calibration (§7.6); Chicago Data Portal bike-route conflation; custom `.rd5` build with inferred stops; tuning `p_stop`, `t_signal`/`t_stop`, `flat_max` and the coverage heuristic from rides | G1 met on ≥ 10 recorded rides |
 | **4 · Polish** | Saved places, bike-infrastructure overlay layer, shareable route links, presets | n/a |
 
 ---
@@ -506,6 +563,7 @@ docs/
 |---|---|---|
 | Q1 | OSM bike-infrastructure tagging completeness, especially in the suburbs | Phase 3 Data Portal conflation; route coloring makes gaps visible |
 | Q2 | Accuracy of stop-sign inference on the residential grid | Calibrate `p_stop` from recorded rides; allow per-area overrides |
+| Q2b | The coverage heuristic (§6.4) may mark a cell "covered" when its signals are only partly mapped, which undercounts the offset | Tune against the city in Phase 0; the route card shows the counts, so an undercount is visible |
 | Q3 | E-bike class rules on specific paths (Lakefront Trail, 606, Forest Preserves, suburban park districts) | Verify current ordinances in Phase 0 before encoding them in `trail-rules.json`; keep the rules user-overridable |
 | Q4 | Photon public API rate limits or availability | Debounce, minimum 3 characters, recent-searches cache, Nominatim fallback for submitted queries |
 | Q5 | Update cadence of brouter.de segment downloads | If they go stale, build the `.rd5` locally from the clipped extract with BRouter's map-creator (feasible for this bbox, same as Phase 3) |
