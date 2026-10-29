@@ -616,6 +616,11 @@ must be re-run there.
 - BRouter's built-in HTTP server ends header lines with a bare `\n`. Caddy accepts that;
   Node's `fetch` doesn't (the spike script uses the lenient parser).
 
+**Checked against the BRouter 1.7.10 source** (cloned; not built or run here): its
+`lookups.dat` is identical to the v11 table tested above, `profile:xxx` request parameters
+are supported, `alternativeidx` is optional, and HTTP headers end in `\r\n` (the bare `\n`
+issue is specific to 1.6.3). `routing/Dockerfile` builds 1.7.10 from source at that tag.
+
 **Open after Phase 0:** latency on the VPS with the current release; trail rules (Q3); the
 coverage heuristic (needs the Geofabrik extract, which was unreachable).
 
