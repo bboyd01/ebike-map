@@ -1,8 +1,10 @@
-# Coolify "Docker Compose" resource (docs/SPEC.md §11). Set the base directory to /deploy.
+# Coolify "Docker Compose" resource (docs/SPEC.md §11). Base directory `/`, compose file
+# `/docker-compose.yml` (Coolify's defaults). Coolify runs compose with the repo root as the
+# project directory, so every path here is relative to the repo root.
 # Only `web` gets a domain in Coolify; brouter and data stay on the internal network.
 services:
   brouter:
-    build: ../routing
+    build: ./routing
     restart: unless-stopped
     volumes:
       - segments:/segments4
@@ -15,7 +17,7 @@ services:
 
   web:
     build:
-      context: ..
+      context: .
       dockerfile: deploy/web.Dockerfile
     restart: unless-stopped
     depends_on:
@@ -27,7 +29,7 @@ services:
     mem_limit: 64m
 
   data:
-    build: ../data
+    build: ./data
     restart: unless-stopped
     volumes:
       - segments:/segments4

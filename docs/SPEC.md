@@ -506,7 +506,7 @@ Per route:
 
 ## 11. Deployment (Coolify)
 
-`deploy/docker-compose.yml`, deployed as a single Coolify "Docker Compose" resource:
+`docker-compose.yml` (repo root; Coolify uses the root as the compose project directory), deployed as a single Coolify "Docker Compose" resource:
 
 | Service | Image | Notes |
 |---|---|---|
@@ -556,9 +556,10 @@ data/
   refresh.sh         Weekly data refresh
   build-controls.mjs controls.bin builder
   trail-rules.json   Path-specific e-bike rules (Phase 3, needs custom .rd5)
+docker-compose.yml   Coolify resource (repo root)
 deploy/
-  docker-compose.yml
   Caddyfile
+  web.Dockerfile
 docs/
   SPEC.md            This document
 ```
