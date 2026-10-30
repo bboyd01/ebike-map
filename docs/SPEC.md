@@ -727,4 +727,10 @@ same `pmtiles://` URL).
   `status.json` reports the failure.
 - **Dismissible notices.** The data-setup banner, location notices and routing errors are
   toasts with a close button.
+- **Cornering speed** (setting, default 13 mph): the speed through a 90° corner (×1.5 at
+  45°, ×0.75 at 135°, ×0.4 for a U-turn). Each turn costs the time to slow from the
+  current speed to it and accelerate back (§7.4), replacing the fixed corner-radius table.
+- **Express-trail routing fix** (shipped in PR #9 alongside `minor_street_factor`): no turn
+  cost on express trails (curves and ramps aren't street corners), and express and plain
+  trails share one entry classifier, so pieces of the 606 don't re-charge the entry cost.
 

@@ -228,6 +228,9 @@ export function SettingsPanel({ mapUrl, onClose, onChangeArea, onOfflineChange }
               display={metric ? `${s.massKg} kg` : `${Math.round(s.massKg / LB)} lb`}
             />
           </Row>
+          <Row label="Cornering speed" htmlFor="corner" hint="How fast you take a 90° corner. Each turn costs the time to slow down to this and speed back up">
+            <Slider id="corner" min={6} max={20} step={1} value={s.cornerMph} onChange={(v) => updateSettings({ cornerMph: v })} display={speed(s.cornerMph)} />
+          </Row>
           <Row label="Riding position" htmlFor="position" hint="Affects wind resistance">
             <select id="position" value={s.position} onChange={(e) => updateSettings({ position: e.currentTarget.value as Position })}>
               <option value="upright">Upright (cargo, cruiser)</option>

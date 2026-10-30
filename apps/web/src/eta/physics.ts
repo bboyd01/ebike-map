@@ -64,22 +64,20 @@ export function slowdownLoss(v: number, vMin: number, accel: number): number {
   return ((v - vMin) ** 2 / (2 * v)) * (1 / DECEL + 1 / accel);
 }
 
-/** Corner radius by turn angle (deg), linearly interpolated. */
-const RADII: [number, number][] = [
-  [45, 12],
-  [90, 6],
-  [135, 4],
-  [180, 2],
+/** Turn speed relative to the rider's 90° cornering speed, by turn angle (deg). */
+const TURN_FACTOR: [number, number][] = [
+  [45, 1.5],
+  [90, 1],
+  [135, 0.75],
+  [180, 0.4], // U-turn
 ];
-export function turnSpeed(angleDeg: number): number {
-  let r = RADII[0]![1];
-  for (let i = 1; i < RADII.length; i++) {
-    const [a0, r0] = RADII[i - 1]!, [a1, r1] = RADII[i]!;
-    if (angleDeg <= a1) {
-      r = r0 + ((r1 - r0) * (Math.max(angleDeg, a0) - a0)) / (a1 - a0);
-      break;
-    }
-    r = r1;
+
+/** Speed through a turn of `angleDeg`, given the rider's speed through a 90° corner. */
+export function turnSpeed(angleDeg: number, cornerMps: number): number {
+  const a = Math.min(Math.max(angleDeg, TURN_FACTOR[0]![0]), 180);
+  for (let i = 1; i < TURN_FACTOR.length; i++) {
+    const [a0, f0] = TURN_FACTOR[i - 1]!, [a1, f1] = TURN_FACTOR[i]!;
+    if (a <= a1) return cornerMps * (f0 + ((f1 - f0) * (a - a0)) / (a1 - a0));
   }
-  return Math.sqrt(0.5 * G * r) * 0.85;
+  return cornerMps * TURN_FACTOR.at(-1)![1];
 }

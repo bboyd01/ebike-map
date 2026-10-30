@@ -69,5 +69,18 @@ describe('estimate', () => {
     ];
     expect(estimate(r, DEFAULT_SETTINGS, null).turns).toBe(2);
   });
+
+  it('turns cost more time with a slower cornering speed', () => {
+    const corner: LonLat[] = [
+      [-87.65, 41.85],
+      [-87.65, 41.8545],
+      [-87.644, 41.8545],
+    ];
+    const r = route(corner, { highway: 'residential' });
+    const slow = estimate(r, { ...DEFAULT_SETTINGS, cornerMph: 8 }, null);
+    const fast = estimate(r, { ...DEFAULT_SETTINGS, cornerMph: 16 }, null);
+    expect(slow.turnS).toBeGreaterThan(fast.turnS);
+    expect(slow.avgMps).toBeLessThan(fast.avgMps);
+  });
 });
 

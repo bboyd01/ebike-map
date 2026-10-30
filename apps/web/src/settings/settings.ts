@@ -26,6 +26,7 @@ export interface Settings {
   descentCapMph: number;
   trailCapMph: number;
   expressTrailMph: number; // average speed on express trails (no stops)
+  cornerMph: number; // speed through a 90° corner (sharper is slower, gentler is faster)
 
   ranking: InfraClass[]; // permutation of RANKABLE
   pickiness: number; // s in cf(r) = (1+s)^(r-1)
@@ -56,6 +57,7 @@ export const DEFAULT_SETTINGS: Settings = {
   descentCapMph: 25,
   trailCapMph: 15,
   expressTrailMph: 20,
+  cornerMph: 13,
 
   ranking: ['shared', 'lane', 'protected', 'trail', 'greenway', 'quiet', 'arterial'],
   pickiness: 0.2,

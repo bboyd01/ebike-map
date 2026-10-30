@@ -47,7 +47,10 @@ describe('kinematics', () => {
     expect(slowdownLoss(8, 0, 1.2)).toBeCloseTo(6.0, 5);
   });
   it('sharper turns are slower', () => {
-    expect(turnSpeed(135)).toBeLessThan(turnSpeed(90));
-    expect(turnSpeed(90)).toBeLessThan(turnSpeed(45));
+    const corner = mphToMps(13);
+    expect(turnSpeed(90, corner)).toBeCloseTo(corner, 9); // the setting is the 90° speed
+    expect(turnSpeed(135, corner)).toBeLessThan(turnSpeed(90, corner));
+    expect(turnSpeed(90, corner)).toBeLessThan(turnSpeed(45, corner));
+    expect(turnSpeed(180, corner)).toBeCloseTo(0.4 * corner, 9);
   });
 });

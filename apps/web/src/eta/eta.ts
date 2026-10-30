@@ -84,6 +84,7 @@ export function estimate(route: ParsedRoute, s: Settings, controls: Controls | n
 
   const byClassM = { express: 0, shared: 0, lane: 0, protected: 0, trail: 0, greenway: 0, quiet: 0, arterial: 0, other: 0 };
   const expressV = mphToMps(s.expressTrailMph);
+  const cornerMps = mphToMps(s.cornerMph);
   const edges: EdgeEstimate[] = [];
   let movingS = 0, distanceM = 0, estimatedMovingS = 0, streetMovingS = 0;
 
@@ -126,7 +127,7 @@ export function estimate(route: ParsedRoute, s: Settings, controls: Controls | n
     if (ang < MIN_TURN_DEG) continue;
     const vIn = edges[i - 1]?.speedMps ?? 0, vOut = edges[i]?.speedMps ?? 0;
     const v = Math.min(vIn, vOut);
-    turnS += slowdownLoss(v, Math.min(turnSpeed(ang), v), launchAccel(v, m, s.throttle));
+    turnS += slowdownLoss(v, Math.min(turnSpeed(ang, cornerMps), v), launchAccel(v, m, s.throttle));
     const signedLeft = ((outB - inB + 540) % 360) - 180 < 0;
     if (signedLeft && ang >= LEFT_TURN_MIN_DEG) leftTurnAt.add(i);
   }
