@@ -206,6 +206,7 @@ button, input, select { font: inherit; color: inherit; }
   cursor: pointer;
 }
 .btn.secondary { background: var(--accent-soft); color: var(--fg); }
+a.btn { display: inline-flex; align-items: center; text-decoration: none; }
 
 /* Dialogs */
 .overlay { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 16px; background: rgba(0, 0, 0, 0.45); }

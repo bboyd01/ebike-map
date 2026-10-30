@@ -81,14 +81,20 @@ cd apps/web && EBIKE_BROUTER=http://localhost:17777 VITE_PMTILES_URL=https://bui
 
 1. New resource → Docker Compose → this repo. Keep the defaults: base directory `/`, compose file `/docker-compose.yml`.
 2. Assign your domain to the `web` service (port 80). `brouter`, `data` and `auth` need no domain.
-3. Set the login password (the app stays locked until you do). Generate a hash, either on
-   any machine with Node 22 (`node auth/hash-password.mjs`) or, after a first deploy, in
-   Coolify's terminal for the `auth` container (`node hash-password.mjs`). It prompts for the
-   password twice and prints `AUTH_PASSWORD_HASH=scrypt:…`. Paste that line into the resource's
-   Environment Variables in Coolify and redeploy. To change the password, repeat; to sign
-   everyone out, also delete the `auth` volume's `session-secret`.
-4. Deploy. On first start, `data` downloads the map data (expect 10–20 minutes) and
+3. Deploy. On first start, `data` downloads the map data (expect 10–20 minutes) and
    BRouter downloads its 79 MB segment file. Routes work once both finish.
+4. Set the login password. Open the app: it shows "Set a password" and asks for a setup
+   code. Find the code in the `auth` service's logs in Coolify (a line like
+   `[auth] No password set. Open the app and enter setup code: ABCD-EF23`), enter it, and
+   choose a password. The app stays locked to everyone until then.
+
+Change the password later in Settings → App → Password (this signs out your other devices).
+Forgot it? Delete `password-hash` from the `auth` volume (or the whole volume) and restart
+the `auth` service; a new setup code appears in its log.
+
+Optional: to pin the password in Coolify instead, run `node auth/hash-password.mjs` (any
+machine with Node 22) and set the printed `AUTH_PASSWORD_HASH=…` as an environment
+variable. It overrides the in-app password and turns off setup and in-app changes.
 
 ## Phase 0 spike
 

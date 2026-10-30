@@ -15,8 +15,9 @@ services:
       timeout: 10s
       start_period: 300s
 
-  # Password login (SPEC §20). Set AUTH_PASSWORD_HASH in Coolify's environment variables
-  # (generate it with auth/hash-password.mjs; see the README). Until it's set, the app is locked.
+  # Password login (SPEC §20). On first run, open the app and enter the setup code from this
+  # service's log to choose a password. AUTH_PASSWORD_HASH (from auth/hash-password.mjs) is an
+  # optional override that pins the password and turns off in-app changes.
   auth:
     build: ./auth
     restart: unless-stopped

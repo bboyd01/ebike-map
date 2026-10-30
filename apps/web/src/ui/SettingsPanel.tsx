@@ -342,6 +342,11 @@ export function SettingsPanel({ mapUrl, onClose, onChangeArea, onOfflineChange }
               Reset
             </button>
           </Row>
+          <Row label="Password" hint="Signs out your other devices">
+            <a class="btn secondary" href="/password">
+              Change
+            </a>
+          </Row>
           <Row label="Sign out" hint="You'll need the password to get back in">
             <button class="btn secondary" onClick={signOut}>
               Sign out

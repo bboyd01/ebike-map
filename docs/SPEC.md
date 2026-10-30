@@ -783,20 +783,31 @@ and ETAs. Defaults come from the rider's trips:
 The app's URL is public, so everything sits behind a single shared password.
 
 - **Gate:** Caddy `forward_auth` asks the `auth` service (`auth/server.mjs`, Node, no
-  dependencies, 64 MB) about every request except `/login`, `/logout`, the web manifest and
+  dependencies, 64 MB) about every request except `/login`, `/logout`, `/setup`, the web manifest and
   icons. Without a valid session, page loads get a redirect to `/login?next=…` and other
   requests a 401. That covers the app shell, `/route` (BRouter) and `/data/*`.
+- **Setting the password:** in the app, like a sign-up form. With no password saved, the
+  login page becomes "Set a password", which needs a one-time setup code that the auth
+  service prints to its container log at startup (and again whenever the form is shown).
+  Reading the log proves you control the server, so a stranger who finds the public URL
+  first can't claim the app. The code stops working once a password is set and changes on
+  restart. Settings → App → Password changes it (current password required). Recovery:
+  delete `password-hash` from the `auth` volume and restart, which brings back setup.
 - **Password storage:** only an scrypt hash (N=16384, r=8, p=1, 16-byte salt, 32-byte key),
-  formatted `scrypt:N:r:p:salt:hash`, set in the `AUTH_PASSWORD_HASH` environment variable
-  (Coolify). `auth/hash-password.mjs` generates it. Checks use a constant-time compare.
+  formatted `scrypt:N:r:p:salt:hash`, saved as `password-hash` (mode 600) in the `auth`
+  volume. Checks use a constant-time compare. Optional override: an `AUTH_PASSWORD_HASH`
+  environment variable (from `auth/hash-password.mjs`) wins and turns off setup and in-app
+  changes. A malformed hash in either place locks the app with a message rather than
+  reopening setup.
 - **Sessions:** an HMAC-SHA256-signed cookie (`ebike_session`, HttpOnly, Secure,
   SameSite=Lax) holding an expiry; 180 days by default (`SESSION_DAYS`). The signing key is
-  random, generated on first start and kept in the `auth` volume; deleting it signs
-  everyone out. Sign out is in Settings → App.
-- **Brute force:** 5 wrong passwords from one IP locks that IP for 15 minutes, doubling on
+  random, generated on first start and kept in the `auth` volume. Setting or changing the
+  password replaces it, signing out every other device; deleting it signs everyone out. Sign out is in Settings → App.
+- **Brute force:** 5 wrong passwords (or setup codes, or current passwords) from one IP locks that IP for 15 minutes, doubling on
   each repeat. Caddy reads the client IP strictly from the right of `X-Forwarded-For`
   (`trusted_proxies_strict`) and passes it as `X-Real-IP`, so it can't be spoofed.
-- **Fails closed:** with no valid hash set, or the auth service down, nothing is served.
+- **Fails closed:** until a password is set, or with the auth service down, nothing but the
+  login page is served.
 - **Service worker:** a cached app shell can still open offline or after the session
   expires, but it holds no personal data; its first request then gets a 401 and the app
   goes to the login page (`src/auth.ts`).
