@@ -214,6 +214,34 @@ alternative with a notice.
 rules (e.g. Chicago Park District and Forest Preserve paths). **The rules must be verified
 against current ordinances before shipping; see open question Q3.**
 
+### 5.6 Bike lanes on through streets
+
+Infrastructure on an arterial (a lane, protected lane or sharrow on a tertiary/secondary/
+primary road) costs ×0.8 of the same class on a side street (`arterial_infra_bonus`).
+Through streets are straight and signal-timed, and have no stop sign every block.
+
+### 5.7 Express trails
+
+Two-way `highway=cycleway` ways on a regional or national bike route
+(`route_bicycle_rcn`/`ncn`), plus rail-trails (`railway=abandoned`), form the `express`
+class. This covers the 606 (Bloomingdale Trail), the Lakefront Trail and other long
+regional trails. They are not part of the ranking:
+
+- **Routing:** cost per meter is `cf_express` = 1, below every ranked class (which are all
+  multiplied by `cf_scale` = 2). There's a one-time `express_entry` cost of 150, applied
+  through BRouter's `initialclassifier`, so a one-block hop doesn't pay off but staying
+  on the trail for 2–3 blocks or more does.
+- **ETA:** the rider's own `expressTrailMph` (default 20 mph, up to 30). No power model,
+  trail cap or flat stop buffer, since these trails have essentially no stops.
+
+### 5.8 Simplest route
+
+Every trip also requests a "Simplest" route. It uses the same profile with every class at
+cost 1, turns at 500, lights at 40 and stop signs at 20, so it follows the fewest, longest
+streets regardless of bike infrastructure. It's always listed last. If it matches another
+route, that route is tagged instead. Every card shows its turn count (left, right, sharp,
+U-turn and roundabout from BRouter's voicehints; not slight bends or keep-left/right).
+
 ### 5.5 Ranking the alternatives
 
 Each alternative gets the score `score = ETA_s × (1 + λ × (pref_cost / dist − 1))`,
@@ -650,4 +678,32 @@ advanced constants), units and map area; installable PWA with an offline app she
 - Verified in a browser end to end against real Chicago data: search, routing, alternative
   selection, re-ranking (refetches with the new costs), drag-to-reorder (busy roads clamped
   to 5th), settings persistence across reloads; no console errors.
+
+---
+
+## 17. Route tuning (2026-10-30)
+
+From first real use: routes had too many turns, and the 606 and Lakefront Trail weren't
+favored. Tuned against nine Chicago trips on the real segment data (`tune*.py` harness in
+the session; results in the table).
+
+| Setting | Before | After | Why |
+|---|---|---|---|
+| `turn_cost` (per 90°) | 20 | 200 | Long straightaways over zig-zags |
+| `node_cost_signal` / crosswalk signal / stop | 250 / 80 / 60 | 80 / 25 / 30 | High light costs pushed routes off through streets (Milwaukee Ave) onto side-street zig-zags |
+| `cf_scale` | n/a | 2.0 | Room for express trails below every ranked class |
+| `arterial_infra_bonus` | n/a | 0.8 | Prefer lanes on through streets |
+| `cf_express` / `express_entry` | n/a | 1.0 / 150 | Favor the 606 and Lakefront Trail beyond 2–3 blocks |
+
+| Trip | Before | After |
+|---|---|---|
+| Logan Square → Loop | 6.7 mi, 22 turns | 5.8–6.0 mi, 3–7 turns, along Milwaukee Ave |
+| Lincoln Park → Museum Campus | n/a | 80% Lakefront Trail |
+| Hyde Park → Loop | n/a | 86% Lakefront Trail |
+| 606 west trailhead → Damen | n/a | 70% on the 606 |
+
+Also added in this round: the app asks for location at launch and centers on it; a
+server data-build progress banner (`/data/status.json`, written by `data/refresh.sh`);
+and an optional offline basemap download per area (Cache Storage, served through the
+same `pmtiles://` URL).
 

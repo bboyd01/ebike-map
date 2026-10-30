@@ -1,8 +1,12 @@
 import { mphToMps } from './units';
 
-export type InfraClass = 'shared' | 'lane' | 'protected' | 'trail' | 'greenway' | 'quiet' | 'arterial' | 'other';
+export type InfraClass = 'express' | 'shared' | 'lane' | 'protected' | 'trail' | 'greenway' | 'quiet' | 'arterial' | 'other';
 
-/** The seven rankable classes; `other` is always last (SPEC §5.2). */
+/**
+ * The seven rankable classes; `other` is always last (SPEC §5.2). `express` (the 606,
+ * Lakefront Trail and other long regional trails) isn't ranked: it's always preferred
+ * once the route can stay on it for a few blocks (SPEC §5.7).
+ */
 export const RANKABLE: InfraClass[] = ['shared', 'lane', 'protected', 'trail', 'greenway', 'quiet', 'arterial'];
 
 export type BikeClass = 'class1' | 'class2' | 'class3' | 'custom';
@@ -21,6 +25,7 @@ export interface Settings {
   throttle: boolean;
   descentCapMph: number;
   trailCapMph: number;
+  expressTrailMph: number; // average speed on express trails (no stops)
 
   ranking: InfraClass[]; // permutation of RANKABLE
   pickiness: number; // s in cf(r) = (1+s)^(r-1)
@@ -52,6 +57,7 @@ export const DEFAULT_SETTINGS: Settings = {
   throttle: true,
   descentCapMph: 25,
   trailCapMph: 15,
+  expressTrailMph: 20,
 
   ranking: ['shared', 'lane', 'protected', 'trail', 'greenway', 'quiet', 'arterial'],
   pickiness: 0.2,
@@ -89,11 +95,16 @@ export function assistCutoffMps(s: Pick<Settings, 'bikeClass' | 'customCutoffMph
   }
 }
 
-/** Cost factor per class from the ranking (SPEC §5.3). */
+/** ebike.brf multiplies ranked classes by cf_scale; express trails cost cf_express = 1. */
+export const CF_SCALE = 2;
+export const CF_EXPRESS = 1;
+
+/** Cost factor per class from the ranking, relative to the top-ranked class (SPEC §5.3). */
 export function costFactors(s: Pick<Settings, 'ranking' | 'pickiness'>): Record<InfraClass, number> {
   const cf = {} as Record<InfraClass, number>;
   s.ranking.forEach((c, i) => (cf[c] = round3((1 + s.pickiness) ** i)));
   cf.other = round3((1 + s.pickiness) ** s.ranking.length);
+  cf.express = CF_EXPRESS / CF_SCALE;
   return cf;
 }
 

@@ -23,6 +23,8 @@ export function classify(t: Tags): InfraClass {
   const bikeYes = is(t.bicycle, 'yes', 'permissive', 'designated');
   // A one-way cycleway is a separated lane beside a street; trails are two-way.
   if (hw === 'cycleway' && is(t.oneway, 'yes', 'true', '1', '-1')) return 'protected';
+  // Express trail: two-way cycleway on a regional/national route, or a rail-trail (the 606).
+  if (hw === 'cycleway' && (t.route_bicycle_rcn === 'yes' || t.route_bicycle_ncn === 'yes' || t.railway === 'abandoned')) return 'express';
   if (hw === 'cycleway' || (is(hw, 'path', 'footway', 'bridleway') && t.bicycle === 'designated')) return 'trail';
   if (is(hw, 'steps') || t.bicycle === 'dismount' || (is(hw, 'footway', 'pedestrian', 'path') && !bikeYes)) return 'other';
   if (anySide(t, 'track', 'separate')) return 'protected';

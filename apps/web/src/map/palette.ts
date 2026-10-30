@@ -3,6 +3,7 @@ import type { InfraClass } from '../settings/settings';
 /** Route-line colors by infrastructure class, for light and dark basemaps. */
 export const CLASS_COLORS: Record<'light' | 'dark', Record<InfraClass, string>> = {
   light: {
+    express: '#e65100',
     protected: '#0b7a4b',
     trail: '#2e7d32',
     lane: '#1565c0',
@@ -13,6 +14,7 @@ export const CLASS_COLORS: Record<'light' | 'dark', Record<InfraClass, string>> 
     other: '#8d6e63',
   },
   dark: {
+    express: '#ffa040',
     protected: '#3ccf8e',
     trail: '#7bd88f',
     lane: '#64a8ff',
@@ -25,13 +27,14 @@ export const CLASS_COLORS: Record<'light' | 'dark', Record<InfraClass, string>> 
 };
 
 export const CLASS_LABEL: Record<InfraClass, string> = {
+  express: 'Express trail',
   protected: 'Protected lane',
   trail: 'Off-street trail',
   lane: 'Painted lane',
   shared: 'Shared lane',
   greenway: 'Greenway',
   quiet: 'Quiet street',
-  arterial: 'Busy road',
+  arterial: 'Busy road, no bike lane',
   other: 'Other',
 };
 
