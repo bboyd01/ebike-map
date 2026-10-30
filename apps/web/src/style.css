@@ -127,7 +127,9 @@ button, input, select { font: inherit; color: inherit; }
 .icon-btn:hover { background: var(--accent-soft); }
 .icon-btn:disabled { opacity: 0.3; cursor: default; background: transparent; }
 
-.banner { padding: 10px 14px; font-size: 0.875rem; display: grid; gap: 4px; }
+.toast { display: flex; align-items: flex-start; gap: 4px; padding: 10px 6px 10px 14px; font-size: 0.875rem; }
+.toast-body { flex: 1; display: grid; gap: 4px; padding-top: 6px; }
+.toast-error { border-left: 4px solid var(--error); }
 .progress { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
 .progress span { display: block; height: 100%; background: var(--accent); transition: width 0.4s; }
 

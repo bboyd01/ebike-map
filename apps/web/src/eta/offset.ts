@@ -2,37 +2,32 @@ import { ControlType, type RouteControl } from '../controls/controls';
 import type { Settings } from '../settings/settings';
 
 export interface OffsetInput {
-  controls: RouteControl[]; // controls in covered cells only
-  leftTurnSignals: number; // signals where the route turns left (count 1.5x, SPEC §7.4)
-  uncoveredMovingS: number; // moving time spent outside covered cells
-  totalMovingS: number;
+  controls: RouteControl[]; // mapped stoplights on the route, in covered cells
+  leftTurnSignals: number; // lights where the route turns left (count 1.5x, SPEC §7.4)
+  estimatedMovingS: number; // side-street time + time where lights aren't mapped
+  totalMovingS: number; // all riding time except express trails
 }
 
 export interface OffsetResult {
-  mode: 'count' | 'flat' | 'mixed';
   seconds: number;
-  countS: number;
-  flatS: number;
-  signals: number;
-  stops: number;
-  allWayStops: number;
-  flatFraction: number; // share of moving time estimated with the flat %
+  lightS: number; // from counted stoplights
+  estimateS: number; // flat % on side streets and unmapped areas
+  lights: number;
+  estimatedFraction: number; // share of riding time that got the flat %
 }
 
-type OffsetSettings = Pick<Settings, 'temperature' | 'tSignalS' | 'tStopS' | 'tAllWayS' | 'flatMax'>;
+type OffsetSettings = Pick<Settings, 'temperature' | 'tSignalS' | 'flatMax'>;
 
-/** Temperature offset (SPEC §6): count mode where controls are mapped, flat % elsewhere. */
+/**
+ * Temperature offset (SPEC §6). Mapped stoplights are counted. Stop signs aren't: OSM's
+ * coverage of them is incomplete, so side-street time (where they are) gets the flat %,
+ * as does time anywhere lights aren't mapped. Nothing is placed by guessing.
+ */
 export function computeOffset(inp: OffsetInput, s: OffsetSettings): OffsetResult {
   const level = 1 - Math.min(Math.max(s.temperature, 0), 1);
-  let signals = 0, stops = 0, allWayStops = 0;
-  for (const c of inp.controls) {
-    if (c.type === ControlType.signal || c.type === ControlType.crossingSignal) signals++;
-    else if (c.type === ControlType.allWayStop) allWayStops++;
-    else if (c.type === ControlType.stop) stops++;
-  }
-  const countS = level * ((signals + 0.5 * inp.leftTurnSignals) * s.tSignalS + stops * s.tStopS + allWayStops * s.tAllWayS);
-  const flatS = level * Math.min(Math.max(s.flatMax, 0), 0.5) * inp.uncoveredMovingS;
-  const flatFraction = inp.totalMovingS > 0 ? inp.uncoveredMovingS / inp.totalMovingS : 1;
-  const mode = flatFraction >= 0.999 ? 'flat' : flatFraction <= 0.001 ? 'count' : 'mixed';
-  return { mode, seconds: countS + flatS, countS, flatS, signals, stops, allWayStops, flatFraction };
+  const lights = inp.controls.filter((c) => c.type === ControlType.signal || c.type === ControlType.crossingSignal).length;
+  const lightS = level * (lights + 0.5 * inp.leftTurnSignals) * s.tSignalS;
+  const estimateS = level * Math.min(Math.max(s.flatMax, 0), 0.5) * inp.estimatedMovingS;
+  const estimatedFraction = inp.totalMovingS > 0 ? inp.estimatedMovingS / inp.totalMovingS : 0;
+  return { seconds: lightS + estimateS, lightS, estimateS, lights, estimatedFraction };
 }

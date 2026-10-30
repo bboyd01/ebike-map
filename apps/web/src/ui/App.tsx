@@ -4,6 +4,7 @@ import { AREA_BBOX, loadControls, loadManifest, pmtilesUrl, resetDataCache } fro
 import { offlineBlob } from '../data/offline';
 import { protocol, registerOfflineArchive } from '../map/protocol';
 import { DataBanner } from './DataBanner';
+import { Toast } from './Toast';
 import type { LonLat } from '../geo/geo';
 import { reverseLabel, type Place } from '../geocode/photon';
 import { MapView } from '../map/MapView';
@@ -66,6 +67,9 @@ export function App() {
   const [selected, setSelected] = useState<string | null>(null);
   const [loading, setLoading] = useState<'idle' | 'first' | 'more'>('idle');
   const [error, setError] = useState<string | null>(null);
+  // Dismissed notices, keyed by their text (a new message shows again).
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const dismiss = (key: string) => setDismissed((d) => new Set(d).add(key));
   const [pin, setPin] = useState<{ p: LonLat; x: number; y: number; label: string } | null>(null);
 
   // Basemap + controls for the chosen area. A saved offline copy is used if present.
@@ -191,7 +195,13 @@ export function App() {
             setDestination(origin);
           }}
         />
-        {dataPending && <DataBanner onReady={onDataReady} />}
+        {dataPending && !dismissed.has('data') && <DataBanner onReady={onDataReady} onClose={() => dismiss('data')} />}
+        {hint && !options.length && !dismissed.has(hint) && <Toast onClose={() => dismiss(hint)}>{hint}</Toast>}
+        {error && !dismissed.has(error) && (
+          <Toast kind="error" onClose={() => dismiss(error)}>
+            {error}
+          </Toast>
+        )}
         <div class="fabs">
           <button class="fab" aria-label="Settings" onClick={() => setShowSettings(true)}>
             <GearIcon />
@@ -207,7 +217,7 @@ export function App() {
             <LocateIcon />
           </button>
         </div>
-        <RouteSheet options={options} selected={selected} loading={loading} error={error} units={s.units} hint={hint} onSelect={setSelected} />
+        <RouteSheet options={options} selected={selected} loading={loading} units={s.units} onSelect={setSelected} />
       </div>
 
 

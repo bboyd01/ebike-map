@@ -35,29 +35,25 @@ const pct = (m: number, total: number) => `${Math.round((m / total) * 100)}%`;
 
 function offsetText(eta: Eta): string {
   const o = eta.offset;
-  const extra = `+${fmtDuration(o.seconds)} for stops`;
   if (o.seconds === 0) return 'No stop buffer';
-  if (o.mode === 'flat') return `${extra} (estimated, controls not mapped here)`;
-  const counts = `${o.signals} light${o.signals === 1 ? '' : 's'} · ${o.stops + o.allWayStops} stop sign${o.stops + o.allWayStops === 1 ? '' : 's'}`;
-  return o.mode === 'mixed' ? `${extra} (${counts}; estimated for ${Math.round(o.flatFraction * 100)}% of the ride)` : `${extra} (${counts})`;
+  const parts: string[] = [];
+  if (o.lights > 0) parts.push(`${o.lights} stoplight${o.lights === 1 ? '' : 's'}`);
+  if (o.estimateS > 0) parts.push(`${Math.round(o.estimatedFraction * 100)}% of the ride estimated (side streets, unmapped areas)`);
+  return `+${fmtDuration(o.seconds)} for stops: ${parts.join(' · ')}`;
 }
 
 interface RouteSheetProps {
   options: RouteOption[];
   selected: string | null;
   loading: 'idle' | 'first' | 'more';
-  error: string | null;
   units: Settings['units'];
-  hint: string | null;
   onSelect: (id: string) => void;
 }
 
-export function RouteSheet({ options, selected, loading, error, units, hint, onSelect }: RouteSheetProps) {
-  if (!options.length && loading === 'idle' && !error && !hint) return null;
+export function RouteSheet({ options, selected, loading, units, onSelect }: RouteSheetProps) {
+  if (!options.length && loading === 'idle') return null;
   return (
     <section class="sheet card" aria-live="polite">
-      {hint && !options.length && !error && loading === 'idle' && <p class="muted">{hint}</p>}
-      {error && <p class="error">{error}</p>}
       {loading === 'first' && <p class="muted">Finding routes…</p>}
       <ol class="routes">
         {options.map((o, i) => {
