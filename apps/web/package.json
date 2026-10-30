@@ -11,15 +11,19 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@preact/signals": "^2.11.4",
+    "@protomaps/basemaps": "^5.7.2",
     "maplibre-gl": "^6.16.0",
     "pmtiles": "^4.5.0",
     "preact": "^11.1.0"
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.10.6",
+    "@types/geojson": "^7946.0.16",
     "@types/node": "^26.6.6",
     "typescript": "^7.0.2",
     "vite": "^8.3.5",
+    "vite-plugin-pwa": "^2.0.0",
     "vitest": "^5.0.5"
   }
 }
