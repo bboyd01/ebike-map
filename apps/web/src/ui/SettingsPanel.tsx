@@ -2,6 +2,7 @@ import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { AREA_LABEL } from '../data/manifest';
 import { CAL_LIGHTS_PER_MILE } from '../eta/speeds';
+import { signOut } from '../auth';
 import { downloadOffline, fmtMB, offlineInfo, removeOffline, type OfflineInfo } from '../data/offline';
 import { CLASS_COLORS, CLASS_LABEL, prefersDark } from '../map/palette';
 import { costFactors, normalizeRanking, type AreaId, type BikeClass, type InfraClass, type Position, type Settings } from '../settings/settings';
@@ -339,6 +340,11 @@ export function SettingsPanel({ mapUrl, onClose, onChangeArea, onOfflineChange }
           <Row label="Reset all settings" hint="Keeps your map area">
             <button class="btn secondary" onClick={() => confirm('Reset all settings to defaults?') && resetSettings()}>
               Reset
+            </button>
+          </Row>
+          <Row label="Sign out" hint="You'll need the password to get back in">
+            <button class="btn secondary" onClick={signOut}>
+              Sign out
             </button>
           </Row>
         </Section>

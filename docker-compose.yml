@@ -1,7 +1,7 @@
 # Coolify "Docker Compose" resource (docs/SPEC.md §11). Base directory `/`, compose file
 # `/docker-compose.yml` (Coolify's defaults). Coolify runs compose with the repo root as the
 # project directory, so every path here is relative to the repo root.
-# Only `web` gets a domain in Coolify; brouter and data stay on the internal network.
+# Only `web` gets a domain in Coolify; brouter, data and auth stay on the internal network.
 services:
   brouter:
     build: ./routing
@@ -15,6 +15,18 @@ services:
       timeout: 10s
       start_period: 300s
 
+  # Password login (SPEC §20). Set AUTH_PASSWORD_HASH in Coolify's environment variables
+  # (generate it with auth/hash-password.mjs; see the README). Until it's set, the app is locked.
+  auth:
+    build: ./auth
+    restart: unless-stopped
+    environment:
+      - AUTH_PASSWORD_HASH=${AUTH_PASSWORD_HASH:-}
+      - SESSION_DAYS=${SESSION_DAYS:-180}
+    volumes:
+      - auth:/data
+    mem_limit: 64m
+
   web:
     build:
       context: .
@@ -22,6 +34,7 @@ services:
     restart: unless-stopped
     depends_on:
       - brouter
+      - auth
     volumes:
       - data:/srv/data:ro
     expose:
@@ -39,3 +52,4 @@ services:
 volumes:
   segments:
   data:
+  auth:

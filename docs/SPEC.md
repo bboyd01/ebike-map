@@ -584,6 +584,9 @@ data/
   refresh.sh         Weekly data refresh
   build-controls.mjs controls.bin builder
   trail-rules.json   Path-specific e-bike rules (Phase 3, needs custom .rd5)
+auth/
+  server.mjs         Login service (Caddy forward_auth), zero dependencies
+  hash-password.mjs  Prints an AUTH_PASSWORD_HASH value
 docker-compose.yml   Coolify resource (repo root)
 deploy/
   Caddyfile
@@ -774,4 +777,32 @@ and ETAs. Defaults come from the rider's trips:
 - **Location:** used silently if already allowed. Otherwise a "Use my location" notice
   appears, whose button (a tap) shows the prompt, as mobile browsers require. Picking the
   map area also asks. If blocked, the notice gives re-enable steps for iPhone and Android.
+
+## 20. Password login (2026-10-30)
+
+The app's URL is public, so everything sits behind a single shared password.
+
+- **Gate:** Caddy `forward_auth` asks the `auth` service (`auth/server.mjs`, Node, no
+  dependencies, 64 MB) about every request except `/login`, `/logout`, the web manifest and
+  icons. Without a valid session, page loads get a redirect to `/login?next=…` and other
+  requests a 401. That covers the app shell, `/route` (BRouter) and `/data/*`.
+- **Password storage:** only an scrypt hash (N=16384, r=8, p=1, 16-byte salt, 32-byte key),
+  formatted `scrypt:N:r:p:salt:hash`, set in the `AUTH_PASSWORD_HASH` environment variable
+  (Coolify). `auth/hash-password.mjs` generates it. Checks use a constant-time compare.
+- **Sessions:** an HMAC-SHA256-signed cookie (`ebike_session`, HttpOnly, Secure,
+  SameSite=Lax) holding an expiry; 180 days by default (`SESSION_DAYS`). The signing key is
+  random, generated on first start and kept in the `auth` volume; deleting it signs
+  everyone out. Sign out is in Settings → App.
+- **Brute force:** 5 wrong passwords from one IP locks that IP for 15 minutes, doubling on
+  each repeat. Caddy reads the client IP strictly from the right of `X-Forwarded-For`
+  (`trusted_proxies_strict`) and passes it as `X-Real-IP`, so it can't be spoofed.
+- **Fails closed:** with no valid hash set, or the auth service down, nothing is served.
+- **Service worker:** a cached app shell can still open offline or after the session
+  expires, but it holds no personal data; its first request then gets a 401 and the app
+  goes to the login page (`src/auth.ts`).
+- **What's private where:** recent places and settings live only in the phone's
+  localStorage, never on the server. The server only sees route requests (their coordinates
+  appear in BRouter's request log). Geocoding goes from the phone to Photon directly.
+- **iPhone:** an installed home-screen app has its own cookie store, separate from Safari,
+  so sign in once inside the installed app.
 

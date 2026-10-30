@@ -80,8 +80,14 @@ cd apps/web && EBIKE_BROUTER=http://localhost:17777 VITE_PMTILES_URL=https://bui
 ## Deploying on Coolify
 
 1. New resource → Docker Compose → this repo. Keep the defaults: base directory `/`, compose file `/docker-compose.yml`.
-2. Assign your domain to the `web` service (port 80). `brouter` and `data` need no domain.
-3. Deploy. On first start, `data` downloads the map data (expect 10–20 minutes) and
+2. Assign your domain to the `web` service (port 80). `brouter`, `data` and `auth` need no domain.
+3. Set the login password (the app stays locked until you do). Generate a hash, either on
+   any machine with Node 22 (`node auth/hash-password.mjs`) or, after a first deploy, in
+   Coolify's terminal for the `auth` container (`node hash-password.mjs`). It prompts for the
+   password twice and prints `AUTH_PASSWORD_HASH=scrypt:…`. Paste that line into the resource's
+   Environment Variables in Coolify and redeploy. To change the password, repeat; to sign
+   everyone out, also delete the `auth` volume's `session-secret`.
+4. Deploy. On first start, `data` downloads the map data (expect 10–20 minutes) and
    BRouter downloads its 79 MB segment file. Routes work once both finish.
 
 ## Phase 0 spike

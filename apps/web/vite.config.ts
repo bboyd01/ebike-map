@@ -32,7 +32,7 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,mjs,css,html,svg,png,webmanifest}'],
-        navigateFallbackDenylist: [/^\/route/, /^\/data\//],
+        navigateFallbackDenylist: [/^\/route/, /^\/data\//, /^\/login/, /^\/logout/],
         runtimeCaching: [
           // Controls files are versioned and immutable.
           { urlPattern: /\/data\/.*\.controls\.v\d+\.bin$/, handler: 'CacheFirst', options: { cacheName: 'controls' } },

@@ -3,10 +3,27 @@
 	servers {
 		# Coolify's Traefik sits in front; trust it for the client IP.
 		trusted_proxies static private_ranges
+		# Read the client IP from the right of X-Forwarded-For, so it can't be spoofed
+		# (the login lockout is per IP).
+		trusted_proxies_strict
 	}
 }
 
 :80 {
+	# Login (SPEC §20): everything except the login page and the PWA install bits needs
+	# a session. The auth service redirects page loads to /login and answers 401 to
+	# API calls. It fails closed: no password hash set, or auth down, means locked.
+	@protected not path /login /logout /manifest.webmanifest /icon.svg /icon-192.png /icon-512.png /apple-touch-icon.png /favicon.ico
+	forward_auth @protected auth:8080 {
+		uri /auth/check
+	}
+	@auth path /login /logout
+	handle @auth {
+		reverse_proxy auth:8080 {
+			header_up X-Real-IP {client_ip}
+		}
+	}
+
 	# Routing: only the route endpoint is exposed, never BRouter's profile upload.
 	# No rate limit plugin (stock Caddy keeps the image build light); BRouter's
 	# MAX_THREADS bounds concurrent work.
