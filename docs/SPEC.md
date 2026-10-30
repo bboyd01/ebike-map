@@ -746,7 +746,7 @@ and ETAs. Defaults come from the rider's trips:
 | Lakefront Trail | 23 | Express trail near the lake (shoreline heuristic) |
 | 606, off-peak / busy | 23 / 16 | Busy = weekdays 7–9:30, 11:30–1:30, 4–7, March–November, Chicago time |
 | Other regional trails | 20 | |
-| Painted/shared lanes on through streets | 16 | Elston, Damen, Clark, Division |
+| Painted/shared lanes on through streets | 19 | Elston, Damen, Clark, Division |
 | Protected lanes | 17 | Milwaukee, Belmont, Augusta (heavy bike traffic) |
 | Busy roads, no bike lane | 23 | North, Western, Ashland, Fullerton; ×2 safety penalty in routing |
 | Side streets (with or without lanes) | 14 | Assumed; stop sign most blocks |

@@ -57,7 +57,7 @@ export interface Settings {
   recordRides: boolean;
 }
 
-export const SETTINGS_SCHEMA = 3;
+export const SETTINGS_SCHEMA = 4;
 
 export const DEFAULT_SETTINGS: Settings = {
   schema: SETTINGS_SCHEMA,
@@ -79,7 +79,7 @@ export const DEFAULT_SETTINGS: Settings = {
   expressMph: 20,
   trailMph: 14,
   protectedMph: 17,
-  laneMph: 16,
+  laneMph: 19,
   arterialMph: 23,
   sideStreetMph: 14,
   otherMph: 10,

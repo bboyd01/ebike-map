@@ -19,6 +19,10 @@ function load(): Settings {
     if ((stored.schema ?? 1) < 3 && (stored.protectedMph === undefined || stored.protectedMph === 14)) {
       merged.protectedMph = DEFAULT_SETTINGS.protectedMph;
     }
+    // Schema 4: painted/shared-lane default 16 -> 19 mph (keep a value the rider changed).
+    if ((stored.schema ?? 1) < 4 && (stored.laneMph === undefined || stored.laneMph === 16)) {
+      merged.laneMph = DEFAULT_SETTINGS.laneMph;
+    }
     merged.schema = SETTINGS_SCHEMA;
     return { ...merged, ranking: normalizeRanking(merged.ranking) };
   } catch {
