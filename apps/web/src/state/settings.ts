@@ -23,6 +23,10 @@ function load(): Settings {
     if ((stored.schema ?? 1) < 4 && (stored.laneMph === undefined || stored.laneMph === 16)) {
       merged.laneMph = DEFAULT_SETTINGS.laneMph;
     }
+    // Schema 5: side-street default 14 -> 16 mph (keep a value the rider changed).
+    if ((stored.schema ?? 1) < 5 && (stored.sideStreetMph === undefined || stored.sideStreetMph === 14)) {
+      merged.sideStreetMph = DEFAULT_SETTINGS.sideStreetMph;
+    }
     merged.schema = SETTINGS_SCHEMA;
     return { ...merged, ranking: normalizeRanking(merged.ranking) };
   } catch {

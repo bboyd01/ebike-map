@@ -749,7 +749,7 @@ and ETAs. Defaults come from the rider's trips:
 | Painted/shared lanes on through streets | 19 | Elston, Damen, Clark, Division |
 | Protected lanes | 17 | Milwaukee, Belmont, Augusta (heavy bike traffic) |
 | Busy roads, no bike lane | 23 | North, Western, Ashland, Fullerton; ×2 safety penalty in routing |
-| Side streets (with or without lanes) | 14 | Assumed; stop sign most blocks |
+| Side streets (with or without lanes) | 16 | Stop sign most blocks |
 | Park paths / other | 14 / 10 | Assumed |
 
 - **Routing = fastest time.** Cost per meter is the class's time per meter relative to the
