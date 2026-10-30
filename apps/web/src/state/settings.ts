@@ -15,6 +15,10 @@ function load(): Settings {
       merged.pickiness = DEFAULT_SETTINGS.pickiness;
       merged.tSignalS = DEFAULT_SETTINGS.tSignalS;
     }
+    // Schema 3: protected-lane default 14 -> 17 mph (keep a value the rider changed).
+    if ((stored.schema ?? 1) < 3 && (stored.protectedMph === undefined || stored.protectedMph === 14)) {
+      merged.protectedMph = DEFAULT_SETTINGS.protectedMph;
+    }
     merged.schema = SETTINGS_SCHEMA;
     return { ...merged, ranking: normalizeRanking(merged.ranking) };
   } catch {

@@ -21,7 +21,7 @@ describe('ranking → cost factors (SPEC §5.3)', () => {
     const p = profileParams(DEFAULT_SETTINGS, new Date('2026-12-15T15:00:00Z')); // winter: 606 off-peak
     expect(p['profile:cf_express']).toBe('1'); // Lakefront 23 mph is the fastest class
     expect(p['profile:cf_railtrail']).toBe('1'); // 606 off-peak 23 mph
-    expect(Number(p['profile:cf_protected'])).toBeGreaterThan(Number(p['profile:cf_lane'])); // 14 vs 16 mph
+    expect(Number(p['profile:cf_protected'])).toBeCloseTo((23 / 17) * 1.03 ** 2, 2); // 17 mph, ranked 3rd
     expect(Number(p['profile:cf_arterial'])).toBeGreaterThanOrEqual(2); // 23 mph x2 safety penalty
     const peak = profileParams(DEFAULT_SETTINGS, new Date('2026-06-16T22:30:00Z')); // Tue 5:30 pm CDT
     expect(Number(peak['profile:cf_railtrail'])).toBeCloseTo(23 / 16, 2);
