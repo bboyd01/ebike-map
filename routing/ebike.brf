@@ -40,6 +40,11 @@ assign cf_scale     = 2.0    # %cf_scale%     | Multiplier on all ranked classes
 # signal-timed, straight, and no stop sign every block (SPEC §5.6).
 assign arterial_infra_bonus = 0.8   # %arterial_infra_bonus% | x on lanes/tracks/sharrows on arterials | number
 
+# Side streets (residential/unclassified/service, with or without bike infrastructure) are
+# interrupted every block — mostly by stop signs OSM doesn't have. This factor prefers
+# uninterrupted through streets; it doesn't place any stop signs.
+assign minor_street_factor = 1.0   # %minor_street_factor% | x on side streets | number
+
 # Express trails: long, stop-free regional trails (the 606, Lakefront Trail, …). Cheaper per
 # meter than any street, plus a one-time entry cost so a 1-block hop doesn't pay off but
 # 2–3 blocks or more does (SPEC §5.7).
@@ -137,10 +142,14 @@ assign ranked_cf =
        else if is_arterial then ( if is_busy then multiply cf_arterial busy_factor else cf_arterial )
        else cf_other
 
+assign is_minor = and is_quiet_hw ( not or is_trail is_sidepath )
+
 assign class_cf =
        if is_express then cf_express
        else multiply cf_scale
-            ( if and has_infra is_arterial then multiply ranked_cf arterial_infra_bonus else ranked_cf )
+            ( if and has_infra is_arterial then multiply ranked_cf arterial_infra_bonus
+              else if is_minor then multiply ranked_cf minor_street_factor
+              else ranked_cf )
 
 # Surface ----------------------------------------------------------------------
 assign is_unpaved = surface=unpaved|gravel|fine_gravel|compacted|dirt|earth|ground|grass|sand|mud|pebblestone
@@ -155,9 +164,14 @@ assign costfactor =
        if or blocked oneway_blocked then 10000
        else max 1 ( multiply class_cf surface_mult )
 
-assign turncost    = if junction=roundabout then 0 else turn_cost
-assign initialclassifier = if is_express then 2 else 1
-assign initialcost       = if is_express then express_entry else 0
+# Trail curves and ramps don't slow you down like street corners do: no turn cost on
+# express trails (turning off onto a street still pays the street's turn cost).
+assign turncost    = if or junction=roundabout is_express then 0 else turn_cost
+# Express and plain trails share one classifier, so hopping between trail pieces (bridges,
+# untagged stretches of the 606) doesn't re-charge the entry cost; only getting on from a
+# street does.
+assign initialclassifier = if is_trail then 2 else 1
+assign initialcost       = if is_trail then express_entry else 0
 
 ---context:node
 
