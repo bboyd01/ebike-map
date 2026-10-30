@@ -15,9 +15,9 @@ Chicago area (city only, or city + collar suburbs), like Google Maps' bike mode 
 - **Choose your map on first launch:** Chicago city only, or Chicagoland (city + collar suburbs).
 - **Turn-by-turn navigation** with voice prompts and automatic rerouting.
 
-> Status: **Phase 0 (spike).** The routing profile, deployment, data pipeline, and ETA
-> core are written. The spike ran on real Chicago data (13 of 14 checks pass; first-route
-> latency still needs measuring on the VPS). See [`docs/SPEC.md`](docs/SPEC.md) §15.
+> Status: **Phase 1 (MVP).** Map, search, routes colored by street type, alternatives with
+> ETA and average speed, and the full settings screen. Turn-by-turn navigation (Phase 2)
+> is next. See [`docs/SPEC.md`](docs/SPEC.md).
 
 ## Stack
 
@@ -59,6 +59,18 @@ requests a wake lock to do this.
 
 ```bash
 cd apps/web && npm ci && npm test
+```
+
+Run the app against a deployed stack (routing and map data come from it):
+
+```bash
+cd apps/web && EBIKE_API=https://your-ebike-domain npx vite
+```
+
+Or against a bare local BRouter, with a public Protomaps build as the basemap:
+
+```bash
+cd apps/web && EBIKE_BROUTER=http://localhost:17777 VITE_PMTILES_URL=https://build.protomaps.com/20261029.pmtiles npx vite
 ```
 
 ## Deploying on Coolify

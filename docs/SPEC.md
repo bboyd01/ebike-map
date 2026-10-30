@@ -1,6 +1,6 @@
 # ebike-map — Product & Technical Specification
 
-Status: **Draft v0.2** · Scope: v1 (Chicago city, or city + collar suburbs; chosen on first launch) · Last updated: 2026-10-29
+Status: **v0.3, Phase 1 built** · Scope: v1 (Chicago city, or city + collar suburbs; chosen on first launch) · Last updated: 2026-10-30
 
 ---
 
@@ -494,7 +494,7 @@ Per route:
 
 | ID | Requirement |
 |---|---|
-| NFR-1 | JS shell ≤ 60 KB gzip, excluding MapLibre (~220 KB gzip, loaded in parallel and cached). No other runtime dependencies over 10 KB without justification. |
+| NFR-1 | JS shell ≤ 60 KB gzip, excluding MapLibre (measured: app 37 KB; MapLibre 286 KB in its own preloaded chunk, plus its 147 KB worker; all cached by the service worker). No other runtime dependencies over 10 KB without justification. |
 | NFR-2 | First load ≤ 1.5 s (Moto G-class device, 4G); repeat load ≤ 0.5 s; time-to-interactive map ≤ 2 s. |
 | NFR-3 | First route p95 ≤ 1.5 s server-side for trips ≤ 25 km. Alternatives 1–2 load in the background and appear as they arrive (BRouter computes them cumulatively, so they cost 2–3× the first route). |
 | NFR-4 | Static assets use content-hashed names and `Cache-Control: public, max-age=31536000, immutable`. Data files are versioned per area (`<area>.controls.v<N>.bin`, `<area>.v<N>.pmtiles`, where area is `city` or `metro`) and `index.html` is `no-cache`. |
@@ -624,4 +624,30 @@ issue is specific to 1.6.3). `routing/Dockerfile` now copies the jar from upstre
 
 **Open after Phase 0:** latency on the VPS with the current release; trail rules (Q3); the
 coverage heuristic (needs the Geofabrik extract, which was unreachable).
+
+---
+
+## 16. Phase 1 notes (2026-10-30)
+
+Built: first-launch area picker; full-screen map (MapLibre + Protomaps PMTiles, light/dark
+flavors); Photon search with recent places; "My location"; long-press / right-click to
+drop a start or destination; up to 3 alternatives fetched progressively; selected route
+colored by infrastructure class, others gray; route cards with ETA, arrival time, average
+speed, moving average, class bar and stop-buffer breakdown; settings for bike,
+drag-to-rank street preferences, pickiness, detour, avoid toggles, temperature (with
+advanced constants), units and map area; installable PWA with an offline app shell.
+
+- **Re-estimate without refetching.** Only route-shaping settings (endpoints, ranking,
+  pickiness, avoid toggles) call BRouter again. Speed, weight, temperature, caps and units
+  re-run the ETA model on the routes already fetched, so the cards update instantly.
+- **MapLibre v6 worker.** MapLibre resolves its worker next to its own module file, which
+  doesn't exist after bundling. The worker ships as a separate asset and is registered with
+  `setWorkerUrl` (`src/map/MapView.tsx`).
+- **Chromium compositing bug.** When the route list overflowed the bottom sheet, Chromium
+  left a blank rectangle over the map above it (reproduced headless, in both themes and with
+  and without GPU emulation). Only giving the sheet `opacity: 0.999` cleared it; `contain`,
+  `isolation`, `translateZ` and `will-change` didn't. Worth re-checking on a real phone.
+- Verified in a browser end to end against real Chicago data: search, routing, alternative
+  selection, re-ranking (refetches with the new costs), drag-to-reorder (busy roads clamped
+  to 5th), settings persistence across reloads; no console errors.
 
