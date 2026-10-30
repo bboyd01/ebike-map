@@ -1,6 +1,5 @@
 {
 	admin off
-	order rate_limit before basic_auth
 	servers {
 		# Coolify's Traefik sits in front; trust it for the client IP.
 		trusted_proxies static private_ranges
@@ -9,14 +8,9 @@
 
 :80 {
 	# Routing: only the route endpoint is exposed, never BRouter's profile upload.
+	# No rate limit plugin (stock Caddy keeps the image build light); BRouter's
+	# MAX_THREADS bounds concurrent work.
 	handle /route {
-		rate_limit {
-			zone route {
-				key {client_ip}
-				events 30
-				window 1m
-			}
-		}
 		rewrite * /brouter?{query}
 		reverse_proxy brouter:17777
 	}

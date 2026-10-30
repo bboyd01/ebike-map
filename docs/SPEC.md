@@ -510,8 +510,8 @@ Per route:
 
 | Service | Image | Notes |
 |---|---|---|
-| `brouter` | Built from `routing/Dockerfile` (BRouter release jar + `ebike.brf`) | `JAVA_OPTS=-Xmx384m`, volume `segments:/segments4`, internal network only, `mem_limit: 512m` |
-| `web` | Caddy + built app (multi-stage: `node` build → `caddy:alpine`) | Volume `data:/srv/data` for PMTiles + controls. Proxies `/route` → `brouter:17777/brouter`. Rate limit 30 req/min/IP on `/route` (caddy-ratelimit). `mem_limit: 64m` |
+| `brouter` | `routing/Dockerfile`: `brouter.jar` from upstream's `ghcr.io/abrensch/brouter` image (pinned digest of a `master` build; release-tag images stop at v1.7.8, before lookups v11) + vendored `lookups.dat` v11.2 + `ebike.brf`. No compile step | `JAVA_OPTS=-Xmx384m`, volume `segments:/segments4`, internal network only, `mem_limit: 512m` |
+| `web` | Stock Caddy + built app (multi-stage: `node` build → `caddy:2-alpine`) | Volume `data:/srv/data` for PMTiles + controls. Proxies only `/route` → `brouter:17777/brouter`. No rate-limit plugin (keeps the build light); BRouter's `MAX_THREADS` bounds load. `mem_limit: 64m` |
 
 | `data` | Built from `data/Dockerfile` (Debian: node + osmium-tool + pmtiles CLI) | `data/schedule.sh` runs `data/refresh.sh` once at first start if `/srv/data` is empty (retrying hourly), then Mondays 09:17 UTC. Volumes `segments` and `data`. `mem_limit: 512m` |
 
@@ -620,7 +620,7 @@ must be re-run there.
 **Checked against the BRouter 1.7.10 source** (cloned; not built or run here): its
 `lookups.dat` is identical to the v11 table tested above, `profile:xxx` request parameters
 are supported, `alternativeidx` is optional, and HTTP headers end in `\r\n` (the bare `\n`
-issue is specific to 1.6.3). `routing/Dockerfile` builds 1.7.10 from source at that tag.
+issue is specific to 1.6.3). `routing/Dockerfile` now copies the jar from upstream's published image instead of compiling (the Gradle and Caddy plugin compiles were too heavy for the VPS build).
 
 **Open after Phase 0:** latency on the VPS with the current release; trail rules (Q3); the
 coverage heuristic (needs the Geofabrik extract, which was unreachable).
