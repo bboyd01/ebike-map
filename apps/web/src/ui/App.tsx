@@ -58,10 +58,32 @@ export function App() {
       (e: Error) => setMeError(e.message),
     );
 
-  // Ask for location as soon as the app opens (after the first-launch area choice).
+  // Location permission. Mobile browsers (notably iOS Safari and installed apps) only
+  // reliably show the permission prompt from a tap, so: use location silently if it's
+  // already allowed; otherwise offer a "Use your location" button (a tap -> the prompt).
+  const [locPerm, setLocPerm] = useState<'granted' | 'prompt' | 'denied' | 'unknown'>('unknown');
   useEffect(() => {
-    if (s.area) locate(true);
-  }, [s.area]);
+    let status: PermissionStatus | null = null;
+    const apply = (state: PermissionState) => {
+      setLocPerm(state);
+      if (state === 'granted') locate(true);
+    };
+    navigator.permissions
+      ?.query({ name: 'geolocation' })
+      .then((st) => {
+        status = st;
+        apply(st.state);
+        st.onchange = () => apply(st.state);
+      })
+      .catch(() => setLocPerm('unknown'));
+    return () => {
+      if (status) status.onchange = null;
+    };
+  }, []);
+  const askLocation = () =>
+    locate(true).then(() =>
+      navigator.permissions?.query({ name: 'geolocation' }).then((st) => setLocPerm(st.state), () => undefined),
+    );
 
   const [raw, setRaw] = useState<RawRoute[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -196,7 +218,29 @@ export function App() {
           }}
         />
         {dataPending && !dismissed.has('data') && <DataBanner onReady={onDataReady} onClose={() => dismiss('data')} />}
-        {hint && !options.length && !dismissed.has(hint) && <Toast onClose={() => dismiss(hint)}>{hint}</Toast>}
+        {!me && !pickingArea && locPerm !== 'granted' && !dismissed.has('location') && (
+          <Toast onClose={() => dismiss('location')}>
+            {locPerm === 'denied' || meError?.startsWith('Location permission') ? (
+              <>
+                <strong>Location is blocked for this site</strong>
+                <span class="muted small">
+                  iPhone: Settings → Privacy &amp; Security → Location Services → Safari Websites (or this app) → While Using. Android: tap the
+                  lock icon next to the address → Permissions → Location → Allow. Then reload.
+                </span>
+              </>
+            ) : (
+              <>
+                <span>Use your location to start routes from where you are.</span>
+                <div>
+                  <button class="btn" onClick={askLocation}>
+                    Use my location
+                  </button>
+                </div>
+              </>
+            )}
+          </Toast>
+        )}
+        {hint && !options.length && !dismissed.has(hint) && !hint.startsWith('Location permission') && <Toast onClose={() => dismiss(hint)}>{hint}</Toast>}
         {error && !dismissed.has(error) && (
           <Toast kind="error" onClose={() => dismiss(error)}>
             {error}
@@ -237,6 +281,7 @@ export function App() {
           onPick={(a) => {
             updateSettings({ area: a });
             setPickingArea(false);
+            if (locPerm !== 'denied') askLocation(); // this tap can show the location prompt
           }}
           onCancel={s.area ? () => setPickingArea(false) : undefined}
         />
