@@ -1,0 +1,6 @@
+{
+  // Production build: app source only. Tests import data/controls-format.mjs from outside
+  // apps/web, which isn't in the web image's build context; `npm run typecheck` covers them.
+  "extends": "./tsconfig.json",
+  "include": ["src", "vite.config.ts"]
+}
