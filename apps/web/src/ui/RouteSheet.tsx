@@ -38,7 +38,8 @@ function offsetText(eta: Eta): string {
   if (o.seconds === 0) return 'No stop buffer';
   const parts: string[] = [];
   if (o.lights > 0) parts.push(`${o.lights} stoplight${o.lights === 1 ? '' : 's'}`);
-  if (o.estimateS > 0) parts.push(`${Math.round(o.estimatedFraction * 100)}% of the ride estimated (side streets, unmapped areas)`);
+  if (o.estimatedLights >= 0.5) parts.push(`~${Math.round(o.estimatedLights)} more estimated where lights aren't mapped`);
+  if (o.estimateS > 0) parts.push(`side streets ${Math.round(o.estimatedFraction * 100)}% of the ride (stop signs estimated)`);
   return `+${fmtDuration(o.seconds)} for stops: ${parts.join(' · ')}`;
 }
 

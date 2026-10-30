@@ -1,5 +1,5 @@
 import { effect, signal } from '@preact/signals';
-import { DEFAULT_SETTINGS, normalizeRanking, type Settings } from '../settings/settings';
+import { DEFAULT_SETTINGS, normalizeRanking, SETTINGS_SCHEMA, type Settings } from '../settings/settings';
 
 const KEY = 'ebike-map:settings:v1';
 
@@ -7,7 +7,15 @@ function load(): Settings {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return { ...DEFAULT_SETTINGS };
-    const merged = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } as Settings;
+    const stored = JSON.parse(raw) as Partial<Settings>;
+    const merged = { ...DEFAULT_SETTINGS, ...stored } as Settings;
+    // Schema 2 (speed-based routing, SPEC §19): the ranking became a tie-breaker and the
+    // light wait was recalibrated, so earlier values for those two no longer fit.
+    if ((stored.schema ?? 1) < 2) {
+      merged.pickiness = DEFAULT_SETTINGS.pickiness;
+      merged.tSignalS = DEFAULT_SETTINGS.tSignalS;
+    }
+    merged.schema = SETTINGS_SCHEMA;
     return { ...merged, ranking: normalizeRanking(merged.ranking) };
   } catch {
     return { ...DEFAULT_SETTINGS };

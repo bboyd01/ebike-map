@@ -734,3 +734,44 @@ same `pmtiles://` URL).
   cost on express trails (curves and ramps aren't street corners), and express and plain
   trails share one entry classifier, so pieces of the 606 don't re-charge the entry cost.
 
+---
+
+## 19. Speed-based routing and calibrated ETAs (2026-10-30)
+
+The rider's own average speeds by street type (stops included) now drive both routing
+and ETAs. Defaults come from the rider's trips:
+
+| Street type | Avg (mph) | Notes |
+|---|---|---|
+| Lakefront Trail | 23 | Express trail near the lake (shoreline heuristic) |
+| 606, off-peak / busy | 23 / 16 | Busy = weekdays 7–9:30, 11:30–1:30, 4–7, March–November, Chicago time |
+| Other regional trails | 20 | |
+| Painted/shared lanes on through streets | 16 | Elston, Damen, Clark, Division |
+| Protected lanes | 14 | Milwaukee, Belmont, Augusta (heavy bike traffic) |
+| Busy roads, no bike lane | 23 | North, Western, Ashland, Fullerton; ×2 safety penalty in routing |
+| Side streets (with or without lanes) | 14 | Assumed; stop sign most blocks |
+| Park paths / other | 14 / 10 | Assumed |
+
+- **Routing = fastest time.** Cost per meter is the class's time per meter relative to the
+  fastest class (`routingFactors`, `cf_scale` = 1). The 606's cost follows the departure
+  time (`cf_railtrail`). Busy roads without a bike lane are ×`busyRoadPenalty` (2), so they
+  serve as short connectors but not long stretches. The drag-to-rank list is a small
+  tie-breaker (default ×1.03 per rank). New profile variables: `cf_railtrail`,
+  `cf_infra_minor`.
+- **ETA = the model, calibrated.** For each class, the moving speed is back-solved so that,
+  at the default temperature (0.5), moving time plus the model's stops reproduces the
+  rider's average:
+  - through streets: lights at 4 per mile × 8 s (`t_signal` = 16 s worst case);
+  - side streets: the flat 25%;
+  - trails: no stops.
+
+  Mapped lights are counted; on through streets where they aren't mapped, lights are
+  estimated at that same rate. Grades under 2% count as flat (elevation noise), and descents
+  are never slower than flat. Cautious and assertive temperatures move the result below or
+  above the rider's averages.
+- **Settings migration** (schema 2): earlier tie-break strength and light-wait values are
+  reset to the new defaults; everything else is kept.
+- **Location:** used silently if already allowed. Otherwise a "Use my location" notice
+  appears, whose button (a tap) shows the prompt, as mobile browsers require. Picking the
+  map area also asks. If blocked, the notice gives re-enable steps for iPhone and Android.
+

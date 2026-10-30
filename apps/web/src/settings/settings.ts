@@ -14,6 +14,7 @@ export type Position = 'upright' | 'commuter' | 'sporty';
 export type AreaId = 'city' | 'metro';
 
 export interface Settings {
+  schema: number; // settings migrations (see state/settings.ts)
   area: AreaId | null; // null until chosen on first launch
   bikeClass: BikeClass;
   customCutoffMph: number;
@@ -24,12 +25,24 @@ export interface Settings {
   position: Position;
   throttle: boolean;
   descentCapMph: number;
-  trailCapMph: number;
-  expressTrailMph: number; // average speed on express trails (no stops)
   cornerMph: number; // speed through a 90° corner (sharper is slower, gentler is faster)
 
-  ranking: InfraClass[]; // permutation of RANKABLE
-  pickiness: number; // s in cf(r) = (1+s)^(r-1)
+  // Your average speeds by street type, stops included (SPEC §19). They calibrate the
+  // ETA model and set routing costs (fastest time).
+  lakefrontMph: number;
+  trail606PeakMph: number; // weekday rush + lunch, Mar–Nov
+  trail606OffPeakMph: number;
+  expressMph: number; // other regional trails
+  trailMph: number; // park paths and other off-street trails
+  protectedMph: number;
+  laneMph: number; // painted/shared lanes on through streets
+  arterialMph: number; // through streets with no bike lane
+  sideStreetMph: number; // residential streets (with or without lanes)
+  otherMph: number; // alleys, parking lots, etc.
+  busyRoadPenalty: number; // routing: safety multiplier on busy roads with no bike lane
+
+  ranking: InfraClass[]; // permutation of RANKABLE; a tie-breaker on top of speeds
+  pickiness: number; // tie-break strength s: cf × (1+s)^(rank-1)
   maxDetour: number; // 0.25 = +25%
   avoidUnpaved: boolean;
   avoidRough: boolean;
@@ -44,7 +57,10 @@ export interface Settings {
   recordRides: boolean;
 }
 
+export const SETTINGS_SCHEMA = 2;
+
 export const DEFAULT_SETTINGS: Settings = {
+  schema: SETTINGS_SCHEMA,
   area: null,
   bikeClass: 'class2',
   customCutoffMph: 20,
@@ -55,19 +71,29 @@ export const DEFAULT_SETTINGS: Settings = {
   position: 'commuter',
   throttle: true,
   descentCapMph: 25,
-  trailCapMph: 15,
-  expressTrailMph: 20,
   cornerMph: 13,
 
+  lakefrontMph: 23,
+  trail606PeakMph: 16,
+  trail606OffPeakMph: 23,
+  expressMph: 20,
+  trailMph: 14,
+  protectedMph: 14,
+  laneMph: 16,
+  arterialMph: 23,
+  sideStreetMph: 14,
+  otherMph: 10,
+  busyRoadPenalty: 2,
+
   ranking: ['shared', 'lane', 'protected', 'trail', 'greenway', 'quiet', 'arterial'],
-  pickiness: 0.2,
+  pickiness: 0.03,
   maxDetour: 0.25,
   avoidUnpaved: true,
   avoidRough: true,
   avoidDismount: true,
 
   temperature: 0.5,
-  tSignalS: 50,
+  tSignalS: 16, // worst case; 8 s at the default temperature (calibrated to your averages)
   flatMax: 0.5,
 
   units: 'imperial',

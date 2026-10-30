@@ -5,7 +5,7 @@ import { costFactors, DEFAULT_SETTINGS, normalizeRanking } from '../src/settings
 
 describe('ranking → cost factors (SPEC §5.3)', () => {
   it('matches the spec example for s = 0.20', () => {
-    const cf = costFactors(DEFAULT_SETTINGS);
+    const cf = costFactors({ ...DEFAULT_SETTINGS, pickiness: 0.2 });
     expect([cf.shared, cf.lane, cf.protected, cf.trail, cf.greenway, cf.quiet, cf.arterial]).toEqual([
       1, 1.2, 1.44, 1.728, 2.074, 2.488, 2.986,
     ]);
@@ -17,8 +17,14 @@ describe('ranking → cost factors (SPEC §5.3)', () => {
     expect(normalizeRanking(['arterial', 'trail'])).toEqual(['trail', 'shared', 'lane', 'protected', 'arterial', 'greenway', 'quiet']);
   });
 
-  it('emits profile overrides', () => {
-    expect(profileParams(DEFAULT_SETTINGS)['profile:cf_trail']).toBe('1.728');
+  it('emits speed-based profile overrides (fastest = 1, busy roads penalized)', () => {
+    const p = profileParams(DEFAULT_SETTINGS, new Date('2026-12-15T15:00:00Z')); // winter: 606 off-peak
+    expect(p['profile:cf_express']).toBe('1'); // Lakefront 23 mph is the fastest class
+    expect(p['profile:cf_railtrail']).toBe('1'); // 606 off-peak 23 mph
+    expect(Number(p['profile:cf_protected'])).toBeGreaterThan(Number(p['profile:cf_lane'])); // 14 vs 16 mph
+    expect(Number(p['profile:cf_arterial'])).toBeGreaterThanOrEqual(2); // 23 mph x2 safety penalty
+    const peak = profileParams(DEFAULT_SETTINGS, new Date('2026-06-16T22:30:00Z')); // Tue 5:30 pm CDT
+    expect(Number(peak['profile:cf_railtrail'])).toBeCloseTo(23 / 16, 2);
   });
 });
 

@@ -5,6 +5,7 @@ import type { ParsedRoute } from '../routing/parse';
 import { assistCutoffMps, POSITIONS, type InfraClass, type Settings } from '../settings/settings';
 import { mphToMps } from '../settings/units';
 import { computeOffset, type OffsetResult } from './offset';
+import { CAL_LIGHTS_PER_MILE, is606Peak, movingMps, speedKind, stopModel } from './speeds';
 import { launchAccel, slowdownLoss, steadySpeed, turnSpeed, type RiderModel } from './physics';
 
 export interface EdgeEstimate {
@@ -28,10 +29,10 @@ export interface Eta {
   controls: RouteControl[];
 }
 
-const is = (v: string | undefined, ...vals: string[]) => v !== undefined && vals.includes(v);
 const WALK_MPS = 1.2;
 const SURFACE_MULT = { paved: 1, unpaved: 0.75, rough: 0.8 } as const;
 const GRADE_WINDOW_M = 50;
+const GRADE_DEADBAND = 0.02;
 const MIN_TURN_DEG = 50;
 const LEFT_TURN_MIN_DEG = 60;
 // BRouter VoiceHint commands that count as a turn (not "slightly", "keep" or "continue").
@@ -76,45 +77,48 @@ export function edgeGrades(coords: LonLat[], elev: (number | null)[]): number[] 
   return grades;
 }
 
-export function estimate(route: ParsedRoute, s: Settings, controls: Controls | null): Eta {
+export function estimate(route: ParsedRoute, s: Settings, controls: Controls | null, departure: Date = new Date()): Eta {
   const m = riderModel(s);
   const grades = edgeGrades(route.coords, route.elev);
-  const trailCap = mphToMps(s.trailCapMph);
-  const busyCap = Math.min(m.cruiseMps, mphToMps(18));
+  const flatV = steadySpeed(0, m);
+  const peak606 = is606Peak(departure);
 
   const byClassM = { express: 0, shared: 0, lane: 0, protected: 0, trail: 0, greenway: 0, quiet: 0, arterial: 0, other: 0 };
-  const expressV = mphToMps(s.expressTrailMph);
   const cornerMps = mphToMps(s.cornerMph);
   const edges: EdgeEstimate[] = [];
-  let movingS = 0, distanceM = 0, estimatedMovingS = 0, streetMovingS = 0;
+  let movingS = 0, distanceM = 0, estimatedMovingS = 0, streetMovingS = 0, unmappedLightM = 0;
 
   route.edges.forEach((e, i) => {
     const a = route.coords[e.from]!, b = route.coords[e.to]!;
     const distM = haversine(a, b);
     const cls = classify(e.wayTags);
+    const mid: LonLat = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    const kind = speedKind(cls, e.wayTags, mid);
     let v: number;
     if (isDismount(e.wayTags)) v = WALK_MPS;
-    // Express trails: the rider's own average (no stops, no cars), not the power model.
-    else if (cls === 'express') v = expressV;
     else {
-      v = steadySpeed(grades[i] ?? 0, m) * SURFACE_MULT[surfaceKind(e.wayTags)];
-      if (cls === 'trail') v = Math.min(v, trailCap);
-      if (cls === 'shared' || cls === 'arterial') v = Math.min(v, busyCap);
+      // The rider's calibrated moving speed for this kind of street (SPEC §19), scaled by
+      // the physics model for grade, and by surface.
+      // Elevation data swings ±1–2% on Chicago's flat streets, so smaller grades count as
+      // flat (real climbs are bridges and viaducts, 4%+); descents are never slower than flat.
+      const raw = grades[i] ?? 0;
+      const grade = Math.abs(raw) < GRADE_DEADBAND ? 0 : raw;
+      const gradeFactor = grade < 0 ? Math.max(1, steadySpeed(grade, m) / flatV) : steadySpeed(grade, m) / flatV;
+      v = movingMps(kind, s, peak606) * gradeFactor * SURFACE_MULT[surfaceKind(e.wayTags)];
+      if (grade < 0) v = Math.min(v, Math.max(m.descentCapMps, movingMps(kind, s, peak606)));
     }
     const timeS = distM / v;
     edges.push({ distM, speedMps: v, timeS, cls });
     movingS += timeS;
     distanceM += distM;
     byClassM[cls] += distM;
-    const mid: LonLat = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-    // Express trails have essentially no stops, so they're left out of the stop buffer.
-    if (cls !== 'express') {
-      streetMovingS += timeS;
-      // Side streets: stop signs (not counted; OSM coverage is incomplete) -> flat %.
-      // Elsewhere: counted lights where they're mapped, flat % where they aren't.
-      const sideStreet = is(e.wayTags.highway, 'residential', 'living_street', 'unclassified', 'service');
-      if (sideStreet || !controls || !isCovered(controls, mid[0], mid[1])) estimatedMovingS += timeS;
-    }
+    // Stops, matching the calibration in speeds.ts: none on trails; flat % on side streets
+    // (stop signs aren't counted); counted lights on through streets where they're mapped,
+    // lights at the calibration rate where they aren't.
+    const stops = stopModel(kind);
+    if (stops !== 'none') streetMovingS += timeS;
+    if (stops === 'side') estimatedMovingS += timeS;
+    if (stops === 'lights' && (!controls || !isCovered(controls, mid[0], mid[1]))) unmappedLightM += distM;
   });
 
   // Turn losses at vertices with a sharp heading change (SPEC §7.4).
@@ -144,7 +148,10 @@ export function estimate(route: ParsedRoute, s: Settings, controls: Controls | n
       [-3, -2, -1, 0, 1, 2, 3].some((d) => leftTurnAt.has(c.index + d)),
   ).length;
 
-  const offset = computeOffset({ controls: counted, leftTurnSignals, estimatedMovingS, totalMovingS: streetMovingS }, s);
+  const offset = computeOffset(
+    { controls: counted, leftTurnSignals, estimatedMovingS, estimatedLights: (unmappedLightM / 1609.344) * CAL_LIGHTS_PER_MILE, totalMovingS: streetMovingS },
+    s,
+  );
   const totalS = movingS + turnS + offset.seconds;
   return {
     distanceM,

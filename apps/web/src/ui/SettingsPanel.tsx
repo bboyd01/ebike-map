@@ -1,6 +1,7 @@
 import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { AREA_LABEL } from '../data/manifest';
+import { CAL_LIGHTS_PER_MILE } from '../eta/speeds';
 import { downloadOffline, fmtMB, offlineInfo, removeOffline, type OfflineInfo } from '../data/offline';
 import { CLASS_COLORS, CLASS_LABEL, prefersDark } from '../map/palette';
 import { costFactors, normalizeRanking, type AreaId, type BikeClass, type InfraClass, type Position, type Settings } from '../settings/settings';
@@ -9,6 +10,20 @@ import { resetSettings, settings, updateSettings } from '../state/settings';
 import { CloseIcon, DownIcon, GripIcon, UpIcon } from './icons';
 
 const KMH_PER_MPH = 1.609344;
+
+type SpeedKey = 'lakefrontMph' | 'trail606PeakMph' | 'trail606OffPeakMph' | 'expressMph' | 'laneMph' | 'protectedMph' | 'arterialMph' | 'sideStreetMph' | 'trailMph' | 'otherMph';
+const SPEED_ROWS: [SpeedKey, string, string][] = [
+  ['lakefrontMph', 'Lakefront Trail', 'When not congested'],
+  ['trail606OffPeakMph', '606, off-peak', 'Nights, weekends, winter'],
+  ['trail606PeakMph', '606, busy', 'Weekday rush and lunch, March–November'],
+  ['expressMph', 'Other regional trails', 'North Branch Trail and similar'],
+  ['laneMph', 'Painted or shared lanes', 'On through streets: Elston, Damen, Clark, Division'],
+  ['protectedMph', 'Protected lanes', 'Milwaukee, Belmont, Augusta'],
+  ['arterialMph', 'Busy roads, no bike lane', 'North, Western, Ashland, Fullerton'],
+  ['sideStreetMph', 'Side streets', 'Residential, stop sign most blocks'],
+  ['trailMph', 'Park paths', 'Other off-street paths'],
+  ['otherMph', 'Everything else', 'Alleys, parking lots'],
+];
 
 function Section({ title, children }: { title: string; children: ComponentChildren }) {
   return (
@@ -211,9 +226,6 @@ export function SettingsPanel({ mapUrl, onClose, onChangeArea, onOfflineChange }
               <Slider id="cutoff" min={12} max={35} step={1} value={s.customCutoffMph} onChange={(v) => updateSettings({ customCutoffMph: v })} display={speed(s.customCutoffMph)} />
             </Row>
           )}
-          <Row label="Cruising speed" htmlFor="cruise" hint="Your usual speed on a flat, clear street">
-            <Slider id="cruise" min={8} max={30} step={0.5} value={s.cruiseMph} onChange={(v) => updateSettings({ cruiseMph: v })} display={speed(s.cruiseMph)} />
-          </Row>
           <Row label="Motor power" htmlFor="motor">
             <Slider id="motor" min={250} max={1000} step={50} value={s.motorW} onChange={(v) => updateSettings({ motorW: v })} display={`${s.motorW} W`} />
           </Row>
@@ -243,14 +255,25 @@ export function SettingsPanel({ mapUrl, onClose, onChangeArea, onOfflineChange }
           </Row>
         </Section>
 
-        <Section title="Street preferences">
-          <p class="muted small">Drag to rank. The router rides farther to stay on streets near the top, and prefers bike lanes on through streets over the same lanes on side streets. Busy roads without bike lanes can't go above 5th.</p>
-          <RankingList s={s} />
-          <Row label="Express trails" htmlFor="express" hint="The 606, Lakefront Trail and other long regional trails. Always preferred when you can stay on them for a few blocks. Your average speed there (no stops)">
-            <Slider id="express" min={10} max={30} step={1} value={s.expressTrailMph} onChange={(v) => updateSettings({ expressTrailMph: v })} display={speed(s.expressTrailMph)} />
+        <Section title="Your average speeds">
+          <p class="muted small">
+            Your typical average on each kind of street, stops included. Arrival times are calibrated to these, and routes take the fastest path using them.
+          </p>
+          {SPEED_ROWS.map(([key, label, hint]) => (
+            <Row key={key} label={label} htmlFor={`sp-${key}`} hint={hint}>
+              <Slider id={`sp-${key}`} min={5} max={30} step={1} value={s[key]} onChange={(v) => updateSettings({ [key]: v } as Partial<Settings>)} display={speed(s[key])} />
+            </Row>
+          ))}
+          <Row label="Busy roads without a bike lane" htmlFor="busy" hint="Safety penalty in routing: fine for a few blocks, avoided for long stretches">
+            <Slider id="busy" min={1} max={4} step={0.25} value={s.busyRoadPenalty} onChange={(v) => updateSettings({ busyRoadPenalty: v })} display={`×${s.busyRoadPenalty}`} />
           </Row>
-          <Row label="How strictly to follow it" htmlFor="pickiness" hint="Low: shortest route wins. High: big detours for better streets">
-            <Slider id="pickiness" min={0.05} max={0.6} step={0.05} value={s.pickiness} onChange={(v) => updateSettings({ pickiness: Math.round(v * 100) / 100 })} display={s.pickiness < 0.15 ? 'Low' : s.pickiness < 0.35 ? 'Medium' : 'High'} />
+        </Section>
+
+        <Section title="Street preferences">
+          <p class="muted small">Tie-breaker when routes are about equally fast: drag to rank. Busy roads without bike lanes can't go above 5th.</p>
+          <RankingList s={s} />
+          <Row label="Tie-break strength" htmlFor="pickiness" hint="How much the ranking can outweigh speed">
+            <Slider id="pickiness" min={0} max={0.2} step={0.01} value={s.pickiness} onChange={(v) => updateSettings({ pickiness: Math.round(v * 100) / 100 })} display={s.pickiness < 0.02 ? 'Off' : s.pickiness < 0.08 ? 'Light' : 'Strong'} />
           </Row>
           <Row label="Max detour" htmlFor="detour" hint="Routes longer than this are listed last">
             <Slider id="detour" min={0} max={0.6} step={0.05} value={s.maxDetour} onChange={(v) => updateSettings({ maxDetour: v })} display={`+${Math.round(s.maxDetour * 100)}%`} />
@@ -279,19 +302,17 @@ export function SettingsPanel({ mapUrl, onClose, onChangeArea, onOfflineChange }
             />
           </Row>
           <p class="muted small">
-            At this setting: {Math.round(level * s.tSignalS)} s per mapped stoplight, plus {Math.round(level * s.flatMax * 100)}% of riding time on side streets
-            (stop signs) and wherever lights aren't mapped. Express trails get no buffer.
+            At this setting: {Math.round(level * s.tSignalS)} s per stoplight (estimated at {CAL_LIGHTS_PER_MILE} per mile where they aren't mapped), plus{' '}
+            {Math.round(level * s.flatMax * 100)}% of riding time on side streets for stop signs. Trails get no buffer. At the middle setting, your average
+            speeds above come out exactly.
           </p>
           <details>
             <summary>Advanced</summary>
             <Row label="Worst-case wait per light" htmlFor="tsig">
               <Slider id="tsig" min={0} max={120} step={5} value={s.tSignalS} onChange={(v) => updateSettings({ tSignalS: v })} display={`${s.tSignalS} s`} />
             </Row>
-            <Row label="Side-street and unmapped buffer" htmlFor="flat" hint="Percent of riding time, at the cautious end">
+            <Row label="Side-street buffer" htmlFor="flat" hint="Percent of side-street riding time for stop signs, at the cautious end">
               <Slider id="flat" min={0} max={0.5} step={0.05} value={s.flatMax} onChange={(v) => updateSettings({ flatMax: v })} display={`${Math.round(s.flatMax * 100)}%`} />
-            </Row>
-            <Row label="Trail speed cap" htmlFor="trailcap" hint="Shared with people walking">
-              <Slider id="trailcap" min={8} max={28} step={1} value={s.trailCapMph} onChange={(v) => updateSettings({ trailCapMph: v })} display={speed(s.trailCapMph)} />
             </Row>
             <Row label="Downhill speed cap" htmlFor="descent">
               <Slider id="descent" min={12} max={35} step={1} value={s.descentCapMph} onChange={(v) => updateSettings({ descentCapMph: v })} display={speed(s.descentCapMph)} />

@@ -49,6 +49,9 @@ assign minor_street_factor = 1.0   # %minor_street_factor% | x on side streets |
 # meter than any street, plus a one-time entry cost so a 1-block hop doesn't pay off but
 # 2–3 blocks or more does (SPEC §5.7).
 assign cf_express    = 1.0   # %cf_express%    | Express trail cost per meter | number
+assign cf_railtrail  = 1.0   # %cf_railtrail%  | Rail-trail (the 606) cost per meter; client varies it by time of day | number
+# Bike lane / sharrow on a side street: costs like the side street itself (0 = use ranked cost).
+assign cf_infra_minor = 0    # %cf_infra_minor% | Lane/sharrow on a side street | number
 assign express_entry = 150   # %express_entry% | One-time cost to get on an express trail | number
 
 # --- toggles (1 = on) ---
@@ -144,10 +147,14 @@ assign ranked_cf =
 
 assign is_minor = and is_quiet_hw ( not or is_trail is_sidepath )
 
+assign is_railtrail = and is_express railway=abandoned
+
 assign class_cf =
-       if is_express then cf_express
+       if is_express then ( if is_railtrail then cf_railtrail else cf_express )
        else multiply cf_scale
             ( if and has_infra is_arterial then multiply ranked_cf arterial_infra_bonus
+              else if and has_infra is_minor then
+                ( if greater cf_infra_minor 0 then cf_infra_minor else multiply ranked_cf minor_street_factor )
               else if is_minor then multiply ranked_cf minor_street_factor
               else ranked_cf )
 

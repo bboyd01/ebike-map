@@ -3,13 +3,17 @@ import { costFactors, type InfraClass, type Settings } from '../settings/setting
 
 const LAMBDA = 0.5;
 
-/** Score = ETA × (1 + λ·(preference cost per meter − 1)); lower is better (SPEC §5.5). */
+/**
+ * Score = ETA, nudged by the drag-to-rank tie-breaker and by distance on busy roads with
+ * no bike lane (the same safety penalty routing uses); lower is better (SPEC §19).
+ */
 export function score(eta: Eta, s: Settings): number {
-  const cf = costFactors(s);
+  const tie = costFactors(s);
   let pref = 0;
-  for (const [cls, m] of Object.entries(eta.byClassM) as [InfraClass, number][]) pref += m * cf[cls];
-  const perM = eta.distanceM > 0 ? pref / eta.distanceM : 1;
-  return eta.totalS * (1 + LAMBDA * (perM - 1));
+  for (const [cls, m] of Object.entries(eta.byClassM) as [InfraClass, number][]) pref += m * tie[cls];
+  const tiePerM = eta.distanceM > 0 ? pref / eta.distanceM : 1;
+  const busyShare = eta.distanceM > 0 ? eta.byClassM.arterial / eta.distanceM : 0;
+  return eta.totalS * (1 + LAMBDA * (tiePerM - 1)) * (1 + busyShare * (s.busyRoadPenalty - 1));
 }
 
 /**

@@ -1,25 +1,21 @@
 import type { LonLat } from '../geo/geo';
-import { costFactors, type Settings } from '../settings/settings';
+import { is606Peak, routingFactors } from '../eta/speeds';
+import type { Settings } from '../settings/settings';
 
 /** BRouter turn-instruction mode; final value confirmed in the Phase 0 spike. */
 export const TIMODE = 1;
 
-/** Profile variable overrides for routing/ebike.brf (SPEC §5.3–5.4). */
-export function profileParams(s: Settings): Record<string, string> {
-  const cf = costFactors(s);
-  return {
-    'profile:cf_shared': String(cf.shared),
-    'profile:cf_lane': String(cf.lane),
-    'profile:cf_protected': String(cf.protected),
-    'profile:cf_trail': String(cf.trail),
-    'profile:cf_greenway': String(cf.greenway),
-    'profile:cf_quiet': String(cf.quiet),
-    'profile:cf_arterial': String(cf.arterial),
-    'profile:cf_other': String(cf.other),
-    'profile:avoid_unpaved': s.avoidUnpaved ? '1' : '0',
-    'profile:avoid_rough': s.avoidRough ? '1' : '0',
-    'profile:avoid_dismount': s.avoidDismount ? '1' : '0',
-  };
+/**
+ * Profile variable overrides for routing/ebike.brf: per-class costs from the rider's
+ * average speeds (fastest time, SPEC §19), with the 606's cost set for the departure time.
+ */
+export function profileParams(s: Settings, departure: Date = new Date()): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(routingFactors(s, is606Peak(departure)))) out[`profile:${k}`] = String(v);
+  out['profile:avoid_unpaved'] = s.avoidUnpaved ? '1' : '0';
+  out['profile:avoid_rough'] = s.avoidRough ? '1' : '0';
+  out['profile:avoid_dismount'] = s.avoidDismount ? '1' : '0';
+  return out;
 }
 
 /**

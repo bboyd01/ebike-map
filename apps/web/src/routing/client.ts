@@ -2,7 +2,7 @@ import type { Controls } from '../controls/controls';
 import { estimate, type Eta } from '../eta/eta';
 import type { LonLat } from '../geo/geo';
 import type { Settings } from '../settings/settings';
-import { routeUrl, type RouteVariant } from './params';
+import { profileParams, routeUrl, type RouteVariant } from './params';
 import { parseBRouter, type ParsedRoute } from './parse';
 import { rankAlternatives } from './rank';
 
@@ -26,8 +26,9 @@ const REQUESTS: { variant: RouteVariant; idx: number }[] = [
 ];
 
 /** Settings that change which path BRouter picks; everything else only changes the ETA. */
-export function routingKey(points: LonLat[], s: Settings): string {
-  return JSON.stringify([points, s.ranking, s.pickiness, s.avoidUnpaved, s.avoidRough, s.avoidDismount]);
+export function routingKey(points: LonLat[], s: Settings, departure: Date = new Date()): string {
+  // The full profile parameter set: speeds, tie-break, toggles and the 606's time-of-day cost.
+  return JSON.stringify([points, profileParams(s, departure)]);
 }
 
 /**
