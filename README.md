@@ -11,6 +11,10 @@ Chicago area (city only, or city + collar suburbs), like Google Maps' bike mode 
 - **Temperature.** A "cautious ↔ assertive" slider that adds a time buffer for stops.
   Where lights and stop signs are mapped, the buffer is based on how many the route passes.
   Elsewhere it's a flat 0–50% of travel time.
+- **Express trails.** The 606, the Lakefront Trail and other long regional trails are strongly
+  preferred when the route can stay on them for a few blocks, at your own trail speed.
+- **Fewer turns.** Routes favor long straightaways and bike lanes on through streets, and every
+  trip also shows a **Simplest** route that ignores bike lanes.
 - **Average speed with every ETA**, e.g. `24 min · arrive 5:42 PM · avg 14.2 mph`.
 - **Choose your map on first launch:** Chicago city only, or Chicagoland (city + collar suburbs).
 - **Turn-by-turn navigation** with voice prompts and automatic rerouting.

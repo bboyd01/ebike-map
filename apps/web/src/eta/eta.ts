@@ -23,6 +23,7 @@ export interface Eta {
   avgMps: number; // distance / total ETA
   movingAvgMps: number; // distance / moving time
   byClassM: Record<InfraClass, number>;
+  turns: number; // real turns (left/right/sharp/U/roundabout) from BRouter's voicehints
   edges: EdgeEstimate[];
   controls: RouteControl[];
 }
@@ -32,6 +33,8 @@ const SURFACE_MULT = { paved: 1, unpaved: 0.75, rough: 0.8 } as const;
 const GRADE_WINDOW_M = 50;
 const MIN_TURN_DEG = 50;
 const LEFT_TURN_MIN_DEG = 60;
+// BRouter VoiceHint commands that count as a turn (not "slightly", "keep" or "continue").
+const TURN_COMMANDS = new Set([2, 4, 5, 7, 10, 11, 13, 14, 15]);
 
 export function riderModel(s: Settings): RiderModel {
   const pos = POSITIONS[s.position];
@@ -78,9 +81,10 @@ export function estimate(route: ParsedRoute, s: Settings, controls: Controls | n
   const trailCap = mphToMps(s.trailCapMph);
   const busyCap = Math.min(m.cruiseMps, mphToMps(18));
 
-  const byClassM = { shared: 0, lane: 0, protected: 0, trail: 0, greenway: 0, quiet: 0, arterial: 0, other: 0 };
+  const byClassM = { express: 0, shared: 0, lane: 0, protected: 0, trail: 0, greenway: 0, quiet: 0, arterial: 0, other: 0 };
+  const expressV = mphToMps(s.expressTrailMph);
   const edges: EdgeEstimate[] = [];
-  let movingS = 0, distanceM = 0, uncoveredMovingS = 0;
+  let movingS = 0, distanceM = 0, uncoveredMovingS = 0, streetMovingS = 0;
 
   route.edges.forEach((e, i) => {
     const a = route.coords[e.from]!, b = route.coords[e.to]!;
@@ -88,6 +92,8 @@ export function estimate(route: ParsedRoute, s: Settings, controls: Controls | n
     const cls = classify(e.wayTags);
     let v: number;
     if (isDismount(e.wayTags)) v = WALK_MPS;
+    // Express trails: the rider's own average (no stops, no cars), not the power model.
+    else if (cls === 'express') v = expressV;
     else {
       v = steadySpeed(grades[i] ?? 0, m) * SURFACE_MULT[surfaceKind(e.wayTags)];
       if (cls === 'trail') v = Math.min(v, trailCap);
@@ -99,7 +105,11 @@ export function estimate(route: ParsedRoute, s: Settings, controls: Controls | n
     distanceM += distM;
     byClassM[cls] += distM;
     const mid: LonLat = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-    if (!controls || !isCovered(controls, mid[0], mid[1])) uncoveredMovingS += timeS;
+    // Express trails have essentially no stops, so they're left out of the stop buffer.
+    if (cls !== 'express') {
+      streetMovingS += timeS;
+      if (!controls || !isCovered(controls, mid[0], mid[1])) uncoveredMovingS += timeS;
+    }
   });
 
   // Turn losses at vertices with a sharp heading change (SPEC §7.4).
@@ -129,7 +139,7 @@ export function estimate(route: ParsedRoute, s: Settings, controls: Controls | n
       [-3, -2, -1, 0, 1, 2, 3].some((d) => leftTurnAt.has(c.index + d)),
   ).length;
 
-  const offset = computeOffset({ controls: counted, leftTurnSignals, uncoveredMovingS, totalMovingS: movingS }, s);
+  const offset = computeOffset({ controls: counted, leftTurnSignals, uncoveredMovingS, totalMovingS: streetMovingS }, s);
   const totalS = movingS + turnS + offset.seconds;
   return {
     distanceM,
@@ -140,6 +150,7 @@ export function estimate(route: ParsedRoute, s: Settings, controls: Controls | n
     avgMps: totalS > 0 ? distanceM / totalS : 0,
     movingAvgMps: movingS > 0 ? distanceM / movingS : 0,
     byClassM,
+    turns: route.voicehints.filter((v) => TURN_COMMANDS.has(v[1] ?? 0)).length,
     edges,
     controls: counted,
   };

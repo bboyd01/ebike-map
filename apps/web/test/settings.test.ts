@@ -10,6 +10,7 @@ describe('ranking → cost factors (SPEC §5.3)', () => {
       1, 1.2, 1.44, 1.728, 2.074, 2.488, 2.986,
     ]);
     expect(cf.other).toBeGreaterThan(cf.arterial);
+    expect(cf.express).toBeLessThan(cf.shared); // express trails beat every ranked class
   });
 
   it('keeps arterial at 5th or lower and fills missing classes', () => {
@@ -24,6 +25,9 @@ describe('ranking → cost factors (SPEC §5.3)', () => {
 describe('classify (mirrors ebike.brf)', () => {
   const cases: [Record<string, string>, string][] = [
     [{ highway: 'cycleway' }, 'trail'],
+    [{ highway: 'cycleway', route_bicycle_rcn: 'yes', railway: 'abandoned' }, 'express'], // the 606
+    [{ highway: 'cycleway', route_bicycle_ncn: 'yes' }, 'express'], // Lakefront Trail
+    [{ highway: 'cycleway', route_bicycle_rcn: 'yes', oneway: 'yes' }, 'protected'], // one-way sidepath
     [{ highway: 'footway', bicycle: 'designated' }, 'trail'],
     [{ highway: 'footway' }, 'other'],
     [{ highway: 'secondary', 'cycleway:right': 'track' }, 'protected'],

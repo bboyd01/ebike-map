@@ -3,24 +3,13 @@ import type { Feature, FeatureCollection } from 'geojson';
 import * as maplibregl from 'maplibre-gl';
 import type { GeoJSONSource, StyleSpecification } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-// MapLibre v6 resolves its worker next to its own module file, which doesn't survive
-// bundling; ship the (self-contained) worker as an asset and point MapLibre at it.
-import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
-import { Protocol } from 'pmtiles';
 import { useEffect, useRef } from 'preact/hooks';
+import type { LonLat } from '../geo/geo';
 import { classify } from '../routing/classify';
 import type { RouteOption } from '../routing/client';
-import type { LonLat } from '../geo/geo';
 import type { InfraClass } from '../settings/settings';
 import { CLASS_COLORS, prefersDark } from './palette';
-
-let protocolAdded = false;
-function ensureProtocol() {
-  if (protocolAdded) return;
-  maplibregl.setWorkerUrl(workerUrl);
-  maplibregl.addProtocol('pmtiles', new Protocol().tile);
-  protocolAdded = true;
-}
+import { ensureProtocol } from './protocol';
 
 const ASSETS = 'https://protomaps.github.io/basemaps-assets';
 
@@ -75,12 +64,12 @@ function runFeature(run: { cls: InfraClass; line: LonLat[] }, colors: Record<Inf
   };
 }
 
-function altLines(options: RouteOption[], selected: number | null): FeatureCollection {
+function altLines(options: RouteOption[], selected: string | null): FeatureCollection {
   return {
     type: 'FeatureCollection',
     features: options
-      .filter((o) => o.idx !== selected)
-      .map((o) => ({ type: 'Feature', properties: { idx: o.idx }, geometry: { type: 'LineString', coordinates: o.route.coords } })),
+      .filter((o) => o.id !== selected)
+      .map((o) => ({ type: 'Feature', properties: { id: o.id }, geometry: { type: 'LineString', coordinates: o.route.coords } })),
   };
 }
 
@@ -124,10 +113,11 @@ export interface MapViewProps {
   destination: LonLat | null;
   userLocation: LonLat | null;
   options: RouteOption[];
-  selected: number | null;
+  selected: string | null;
   fitKey: string; // changes when a new trip should be framed
+  focus: { p: LonLat; key: number } | null; // fly here when key changes (e.g. "my location")
   onLongPress: (p: LonLat, screen: { x: number; y: number }) => void;
-  onSelect: (idx: number) => void;
+  onSelect: (id: string) => void;
 }
 
 export function MapView(props: MapViewProps) {
@@ -154,14 +144,16 @@ export function MapView(props: MapViewProps) {
     });
     map.touchZoomRotate.disableRotation();
     mapRef.current = map;
+    // For automated tests and debugging only: ?debug exposes the map as window.__map.
+    if (new URLSearchParams(location.search).has('debug')) (window as unknown as { __map: maplibregl.Map }).__map = map;
 
     map.on('load', () => {
       addRouteLayers(map, dark.current);
       syncRoutes(map, latest.current, dark.current);
     });
     map.on('click', 'alts-line', (ev) => {
-      const idx = ev.features?.[0]?.properties?.idx;
-      if (typeof idx === 'number') latest.current.onSelect(idx);
+      const id = ev.features?.[0]?.properties?.id;
+      if (typeof id === 'string') latest.current.onSelect(id);
     });
     map.on('mouseenter', 'alts-line', () => (map.getCanvas().style.cursor = 'pointer'));
     map.on('mouseleave', 'alts-line', () => (map.getCanvas().style.cursor = ''));
@@ -216,6 +208,13 @@ export function MapView(props: MapViewProps) {
     map.fitBounds(b, { padding: framePadding(), duration: 600, maxZoom: 16 });
   }, [props.fitKey, props.options.length > 0]);
 
+  // Center on a requested point (the rider's location).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !props.focus) return;
+    map.flyTo({ center: props.focus.p, zoom: Math.max(map.getZoom(), 14), duration: 800 });
+  }, [props.focus?.key]);
+
   // Markers.
   useEffect(() => {
     const map = mapRef.current;
@@ -243,8 +242,8 @@ export function MapView(props: MapViewProps) {
 
 function syncRoutes(map: maplibregl.Map, p: MapViewProps, dark: boolean) {
   const colors = CLASS_COLORS[dark ? 'dark' : 'light'];
-  const sel = p.options.find((o) => o.idx === p.selected) ?? p.options[0];
-  (map.getSource('alts') as GeoJSONSource).setData(altLines(p.options, sel?.idx ?? null));
+  const sel = p.options.find((o) => o.id === p.selected) ?? p.options[0];
+  (map.getSource('alts') as GeoJSONSource).setData(altLines(p.options, sel?.id ?? null));
   (map.getSource('selected') as GeoJSONSource).setData(sel ? classRuns(sel, colors) : EMPTY);
 }
 

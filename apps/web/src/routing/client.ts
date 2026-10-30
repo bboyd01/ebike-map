@@ -2,13 +2,14 @@ import type { Controls } from '../controls/controls';
 import { estimate, type Eta } from '../eta/eta';
 import type { LonLat } from '../geo/geo';
 import type { Settings } from '../settings/settings';
-import { routeUrl } from './params';
+import { routeUrl, type RouteVariant } from './params';
 import { parseBRouter, type ParsedRoute } from './parse';
 import { rankAlternatives } from './rank';
 
 export interface RawRoute {
-  idx: number; // BRouter alternativeidx
+  id: string; // stable key: `${variant}-${alternativeidx}`
   route: ParsedRoute;
+  simplest: boolean; // this geometry is (also) the simplest route
 }
 
 export interface RouteOption extends RawRoute {
@@ -16,7 +17,13 @@ export interface RouteOption extends RawRoute {
   overDetour: boolean;
 }
 
-const ALTERNATIVES = [0, 1, 2];
+/** Request order: best preferred route first, then the simplest, then preferred alternatives. */
+const REQUESTS: { variant: RouteVariant; idx: number }[] = [
+  { variant: 'preferred', idx: 0 },
+  { variant: 'simplest', idx: 0 },
+  { variant: 'preferred', idx: 1 },
+  { variant: 'preferred', idx: 2 },
+];
 
 /** Settings that change which path BRouter picks; everything else only changes the ETA. */
 export function routingKey(points: LonLat[], s: Settings): string {
@@ -24,9 +31,9 @@ export function routingKey(points: LonLat[], s: Settings): string {
 }
 
 /**
- * Fetches alternatives in order and reports the list after each one.
- * BRouter computes alternatives cumulatively (alt 2 recomputes 0 and 1), so
- * sequential requests cost no more than parallel ones and show alt 0 sooner.
+ * Fetches routes in order and reports the list after each one. BRouter computes
+ * alternatives cumulatively (alt 2 recomputes 0 and 1), so sequential requests cost no
+ * more than parallel ones and show the first route sooner.
  */
 export async function fetchRoutes(
   points: LonLat[],
@@ -35,42 +42,53 @@ export async function fetchRoutes(
   signal: AbortSignal,
 ): Promise<void> {
   const found: RawRoute[] = [];
-  for (const idx of ALTERNATIVES) {
+  for (const [n, { variant, idx }] of REQUESTS.entries()) {
     let res: Response;
     try {
-      res = await fetch(routeUrl('/route', points, s, idx), { signal });
-    } catch (e) {
+      res = await fetch(routeUrl('/route', points, s, idx, variant), { signal });
+    } catch {
       if (signal.aborted) return;
-      if (idx === 0) throw new Error('Can’t reach the routing server.');
-      break;
+      if (n === 0) throw new Error('Can’t reach the routing server.');
+      continue;
     }
     if (!res.ok) {
-      if (idx === 0) throw new Error(friendlyError(await res.text()));
-      break;
+      if (n === 0) throw new Error(friendlyError(await res.text()));
+      if (variant === 'preferred') break; // no more alternatives
+      continue;
     }
     const route = parseBRouter(await res.json());
     if (signal.aborted) return;
-    // BRouter can return the same path for several indices on short trips.
-    if (!found.some((f) => sameRoute(f.route, route))) {
-      found.push({ idx, route });
-      onUpdate([...found], false);
+    // Same path as one already found (common on short trips): just note it.
+    const dup = found.find((f) => sameRoute(f.route, route));
+    if (dup) {
+      if (variant === 'simplest') dup.simplest = true;
+      continue;
     }
+    found.push({ id: `${variant}-${idx}`, route, simplest: variant === 'simplest' });
+    onUpdate([...found], false);
   }
   if (!signal.aborted) onUpdate([...found], true);
 }
 
 /** ETA and ranking for fetched routes under the current settings (cheap; no network). */
 export function evaluate(routes: RawRoute[], s: Settings, controls: Controls | null): RouteOption[] {
-  return rankAlternatives(
+  const ranked = rankAlternatives(
     routes.map((r) => ({ ...r, eta: estimate(r.route, s, controls) })),
     s,
   );
+  // The simplest route ignores the rider's preferences, so it's always listed last
+  // (unless it's also one of the preferred routes).
+  return [...ranked.filter((r) => !r.id.startsWith('simplest')), ...ranked.filter((r) => r.id.startsWith('simplest'))];
 }
 
 function sameRoute(a: ParsedRoute, b: ParsedRoute): boolean {
-  if (a.coords.length !== b.coords.length) return false;
-  const mid = Math.floor(a.coords.length / 2);
-  return a.coords[mid]![0] === b.coords[mid]![0] && a.coords[mid]![1] === b.coords[mid]![1];
+  if (Math.abs(a.coords.length - b.coords.length) > 2) return false;
+  // Compare a few sample points; identical paths can differ by a vertex at the ends.
+  const at = (r: ParsedRoute, f: number) => r.coords[Math.floor((r.coords.length - 1) * f)]!;
+  return [0.25, 0.5, 0.75].every((f) => {
+    const p = at(a, f), q = at(b, f);
+    return Math.abs(p[0] - q[0]) < 2e-4 && Math.abs(p[1] - q[1]) < 2e-4;
+  });
 }
 
 function friendlyError(text: string): string {

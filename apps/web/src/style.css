@@ -127,7 +127,9 @@ button, input, select { font: inherit; color: inherit; }
 .icon-btn:hover { background: var(--accent-soft); }
 .icon-btn:disabled { opacity: 0.3; cursor: default; background: transparent; }
 
-.banner { padding: 10px 14px; font-size: 0.875rem; }
+.banner { padding: 10px 14px; font-size: 0.875rem; display: grid; gap: 4px; }
+.progress { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.progress span { display: block; height: 100%; background: var(--accent); transition: width 0.4s; }
 
 .sheet {
   margin-top: auto;
@@ -157,18 +159,18 @@ button, input, select { font: inherit; color: inherit; }
 .eta { font-size: 1.375rem; font-weight: 700; }
 .arrive, .avg { font-weight: 600; }
 .avg { color: var(--accent); }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag { font-size: 0.75rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); }
 .classbar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; gap: 1px; margin-top: 4px; }
 .classbar span { display: block; min-width: 3px; }
 .legend { display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 4px 0 0; padding: 0; list-style: none; font-size: 0.8125rem; color: var(--muted); }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
 
-.fabs {
-  position: absolute;
-  right: 12px;
-  top: calc(max(12px, env(safe-area-inset-top)) + 118px);
-  display: grid;
-  gap: 8px;
-}
+/* Phone: a row under the search card, in the panel's flow (never covers it).
+   Wide screens: floating top-right (see the min-width query). */
+.fabs { display: flex; justify-content: flex-end; gap: 8px; }
+.panel > .fabs { pointer-events: none; } /* the row lets map drags through; buttons don't */
+.fab { pointer-events: auto; }
 .fab {
   width: 48px;
   height: 48px;
@@ -234,6 +236,7 @@ button, input, select { font: inherit; color: inherit; }
 .settings-section h2 { font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 20px 0 6px; }
 .setting { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
 .setting-control { flex: none; }
+.setting.offline > div:first-child { flex: 1; display: grid; gap: 4px; }
 .setting select { min-height: 40px; max-width: 220px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
 .slider { display: flex; align-items: center; gap: 8px; }
 .slider input { width: 140px; accent-color: var(--accent); }
@@ -267,7 +270,7 @@ details summary { cursor: pointer; padding: 10px 0; color: var(--muted); }
 @media (min-width: 900px) {
   .panel { inset: 0 auto 0 0; width: 400px; padding: 16px; }
   .sheet { margin-top: 0; max-height: none; flex: 0 1 auto; }
-  .fabs { top: 16px; }
+  .fabs { position: fixed; top: 16px; right: 16px; flex-direction: column; }
 }
 
 /* Phone: the route sheet owns the bottom edge, so put map attribution under the search card. */

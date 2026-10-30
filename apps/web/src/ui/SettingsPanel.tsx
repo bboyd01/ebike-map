@@ -1,6 +1,7 @@
 import type { ComponentChildren } from 'preact';
-import { useRef, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { AREA_LABEL } from '../data/manifest';
+import { downloadOffline, fmtMB, offlineInfo, removeOffline, type OfflineInfo } from '../data/offline';
 import { CLASS_COLORS, CLASS_LABEL, prefersDark } from '../map/palette';
 import { costFactors, normalizeRanking, type AreaId, type BikeClass, type InfraClass, type Position, type Settings } from '../settings/settings';
 import { LB } from '../settings/units';
@@ -106,7 +107,81 @@ function RankingList({ s }: { s: Settings }) {
   );
 }
 
-export function SettingsPanel({ onClose, onChangeArea }: { onClose: () => void; onChangeArea: () => void }) {
+/** Save the whole area's basemap on the device, so the map works without a connection. */
+function OfflineMap({ url, areaName, onChange }: { url: string | null; areaName: string; onChange: () => void }) {
+  const [info, setInfo] = useState<OfflineInfo | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const abort = useRef<AbortController | null>(null);
+  useEffect(() => {
+    if (url) offlineInfo(url).then(setInfo);
+    return () => abort.current?.abort();
+  }, [url]);
+
+  if (!url) return <p class="muted small">Available once your server has finished setting up map data.</p>;
+  if (url.startsWith('https://build.protomaps.com')) return <p class="muted small">Not available in development mode.</p>;
+
+  const start = async () => {
+    setError(null);
+    abort.current = new AbortController();
+    setProgress({ done: 0, total: 0 });
+    try {
+      await downloadOffline(url, (done, total) => setProgress({ done, total }), abort.current.signal);
+      setInfo(await offlineInfo(url));
+      onChange();
+    } catch (e) {
+      if (!abort.current.signal.aborted) setError((e as Error).message);
+    } finally {
+      setProgress(null);
+    }
+  };
+  const pct = progress?.total ? Math.round((progress.done / progress.total) * 100) : 0;
+
+  return (
+    <div class="setting offline">
+      <div>
+        <div>{areaName} map on this device</div>
+        <div class="muted small">
+          {progress
+            ? `Downloading… ${pct}% (${fmtMB(progress.done)}${progress.total ? ` of ${fmtMB(progress.total)}` : ''})`
+            : info
+              ? `Saved (${fmtMB(info.bytes)}, ${new Date(info.savedAt).toLocaleDateString()}). The map works offline; routing still needs a connection.`
+              : 'Without this, map pieces download as you view them and stay in the browser cache.'}
+        </div>
+        {progress && (
+          <div class="progress" aria-hidden="true">
+            <span style={{ width: `${pct}%` }} />
+          </div>
+        )}
+        {error && <div class="error small">{error}</div>}
+      </div>
+      <div class="setting-control">
+        {progress ? (
+          <button class="btn secondary" onClick={() => abort.current?.abort()}>
+            Cancel
+          </button>
+        ) : info ? (
+          <button
+            class="btn secondary"
+            onClick={async () => {
+              await removeOffline(url);
+              setInfo(null);
+              onChange();
+            }}
+          >
+            Remove
+          </button>
+        ) : (
+          <button class="btn" onClick={start}>
+            Download
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function SettingsPanel({ mapUrl, onClose, onChangeArea, onOfflineChange }: { mapUrl: string | null; onClose: () => void; onChangeArea: () => void; onOfflineChange: () => void }) {
   const s = settings.value;
   const metric = s.units === 'metric';
   const speed = (mph: number) => (metric ? `${Math.round(mph * KMH_PER_MPH)} km/h` : `${mph} mph`);
@@ -166,8 +241,11 @@ export function SettingsPanel({ onClose, onChangeArea }: { onClose: () => void; 
         </Section>
 
         <Section title="Street preferences">
-          <p class="muted small">Drag to rank. The router rides farther to stay on streets near the top. Busy roads can't go above 5th.</p>
+          <p class="muted small">Drag to rank. The router rides farther to stay on streets near the top, and prefers bike lanes on through streets over the same lanes on side streets. Busy roads without bike lanes can't go above 5th.</p>
           <RankingList s={s} />
+          <Row label="Express trails" htmlFor="express" hint="The 606, Lakefront Trail and other long regional trails. Always preferred when you can stay on them for a few blocks. Your average speed there (no stops)">
+            <Slider id="express" min={10} max={30} step={1} value={s.expressTrailMph} onChange={(v) => updateSettings({ expressTrailMph: v })} display={speed(s.expressTrailMph)} />
+          </Row>
           <Row label="How strictly to follow it" htmlFor="pickiness" hint="Low: shortest route wins. High: big detours for better streets">
             <Slider id="pickiness" min={0.05} max={0.6} step={0.05} value={s.pickiness} onChange={(v) => updateSettings({ pickiness: Math.round(v * 100) / 100 })} display={s.pickiness < 0.15 ? 'Low' : s.pickiness < 0.35 ? 'Medium' : 'High'} />
           </Row>
@@ -222,6 +300,10 @@ export function SettingsPanel({ onClose, onChangeArea }: { onClose: () => void; 
               <Slider id="descent" min={12} max={35} step={1} value={s.descentCapMph} onChange={(v) => updateSettings({ descentCapMph: v })} display={speed(s.descentCapMph)} />
             </Row>
           </details>
+        </Section>
+
+        <Section title="Offline map">
+          <OfflineMap url={mapUrl} areaName={AREA_LABEL[(s.area ?? 'city') as AreaId].name} onChange={onOfflineChange} />
         </Section>
 
         <Section title="App">

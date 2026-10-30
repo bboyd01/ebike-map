@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Controls } from '../controls/controls';
-import { AREA_BBOX, loadControls, loadManifest, pmtilesUrl } from '../data/manifest';
+import { AREA_BBOX, loadControls, loadManifest, pmtilesUrl, resetDataCache } from '../data/manifest';
+import { offlineBlob } from '../data/offline';
+import { protocol, registerOfflineArchive } from '../map/protocol';
+import { DataBanner } from './DataBanner';
 import type { LonLat } from '../geo/geo';
 import { reverseLabel, type Place } from '../geocode/photon';
 import { MapView } from '../map/MapView';
@@ -41,36 +44,60 @@ export function App() {
   const [destination, setDestination] = useState<Endpoint | null>(null);
   const [me, setMe] = useState<LonLat | null>(null);
   const [meError, setMeError] = useState<string | null>(null);
+  const [focus, setFocus] = useState<{ p: LonLat; key: number } | null>(null);
+
+  /** Ask for the rider's location; center the map on it if it's inside the area. */
+  const locate = (center: boolean) =>
+    getPosition().then(
+      (p) => {
+        setMe(p);
+        setMeError(null);
+        if (center && inBbox(p, AREA_BBOX[settings.value.area ?? 'city'])) setFocus({ p, key: Date.now() });
+      },
+      (e: Error) => setMeError(e.message),
+    );
+
+  // Ask for location as soon as the app opens (after the first-launch area choice).
+  useEffect(() => {
+    if (s.area) locate(true);
+  }, [s.area]);
 
   const [raw, setRaw] = useState<RawRoute[]>([]);
-  const [selected, setSelected] = useState<number | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
   const [loading, setLoading] = useState<'idle' | 'first' | 'more'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [pin, setPin] = useState<{ p: LonLat; x: number; y: number; label: string } | null>(null);
 
-  // Basemap + controls for the chosen area.
+  // Basemap + controls for the chosen area. A saved offline copy is used if present.
+  const [dataVersion, setDataVersion] = useState(0);
   useEffect(() => {
-    setPmtiles(undefined);
-    pmtilesUrl(area).then(setPmtiles);
-    loadControls(area).then(setControls);
-  }, [area]);
-  const [dataPending, setDataPending] = useState(false);
-  useEffect(() => {
-    loadManifest().then((m) => setDataPending(!m && !import.meta.env.VITE_PMTILES_URL));
-  }, []);
-
-  // Resolve "My location" only when it's needed for a route.
-  const needsMe = origin?.kind === 'me' || destination?.kind === 'me';
-  useEffect(() => {
-    if (!needsMe || !destination || !origin) return;
     let live = true;
-    setMeError(null);
-    getPosition()
-      .then((p) => live && setMe(p))
-      .catch((e: Error) => live && setMeError(e.message));
+    setPmtiles(undefined);
+    pmtilesUrl(area).then(async (url) => {
+      const blob = url ? await offlineBlob(url) : null;
+      if (url && blob) registerOfflineArchive(url, blob);
+      else if (url) protocol.tiles.delete(url); // offline copy removed: back to the network
+      if (live) setPmtiles(url);
+    });
+    loadControls(area).then((c) => live && setControls(c));
     return () => {
       live = false;
     };
+  }, [area, dataVersion]);
+  const [dataPending, setDataPending] = useState(false);
+  useEffect(() => {
+    loadManifest().then((m) => setDataPending(!m && !import.meta.env.VITE_PMTILES_URL));
+  }, [dataVersion]);
+  const onDataReady = () => {
+    resetDataCache();
+    setDataVersion((v) => v + 1);
+  };
+
+  // If a route needs "My location" and we don't have it yet (e.g. permission was
+  // dismissed earlier), ask again.
+  const needsMe = origin?.kind === 'me' || destination?.kind === 'me';
+  useEffect(() => {
+    if (needsMe && destination && origin && !me) locate(false);
   }, [needsMe, !!destination, !!origin]);
 
   const point = (e: Endpoint | null): LonLat | null => (!e ? null : e.kind === 'me' ? me : e.place.lonLat);
@@ -142,6 +169,7 @@ export function App() {
           options={options}
           selected={selected}
           fitKey={tripKey}
+          focus={focus}
           onSelect={setSelected}
           onLongPress={(p, pt) => {
             setPin({ p, x: pt.x, y: pt.y, label: 'Dropped pin' });
@@ -163,28 +191,36 @@ export function App() {
             setDestination(origin);
           }}
         />
-        {dataPending && <div class="banner card">Map data is still downloading on the server. Routing works; the basemap appears when it’s ready.</div>}
+        {dataPending && <DataBanner onReady={onDataReady} />}
+        <div class="fabs">
+          <button class="fab" aria-label="Settings" onClick={() => setShowSettings(true)}>
+            <GearIcon />
+          </button>
+          <button
+            class="fab"
+            aria-label="Use my location as the start"
+            onClick={() => {
+              setOrigin({ kind: 'me' });
+              locate(true);
+            }}
+          >
+            <LocateIcon />
+          </button>
+        </div>
         <RouteSheet options={options} selected={selected} loading={loading} error={error} units={s.units} hint={hint} onSelect={setSelected} />
       </div>
 
-      <div class="fabs">
-        <button class="fab" aria-label="Settings" onClick={() => setShowSettings(true)}>
-          <GearIcon />
-        </button>
-        <button
-          class="fab"
-          aria-label="Use my location as the start"
-          onClick={() => {
-            setOrigin({ kind: 'me' });
-            getPosition().then(setMe, (e: Error) => setMeError(e.message));
-          }}
-        >
-          <LocateIcon />
-        </button>
-      </div>
+
 
       {pin && <PinMenu x={pin.x} y={pin.y} label={pin.label} onFrom={() => setPinEndpoint('from')} onTo={() => setPinEndpoint('to')} onClose={() => setPin(null)} />}
-      {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} onChangeArea={() => setPickingArea(true)} />}
+      {showSettings && (
+        <SettingsPanel
+          mapUrl={pmtiles ?? null}
+          onClose={() => setShowSettings(false)}
+          onChangeArea={() => setPickingArea(true)}
+          onOfflineChange={() => setDataVersion((v) => v + 1)}
+        />
+      )}
       {pickingArea && (
         <AreaPicker
           current={s.area}

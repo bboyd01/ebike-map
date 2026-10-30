@@ -51,4 +51,23 @@ describe('estimate', () => {
     expect(eta.turnS).toBeGreaterThan(0);
     expect(eta.byClassM.trail).toBeCloseTo(eta.distanceM, 6);
   });
+
+  it('uses the express-trail speed with no stop buffer on express trails', () => {
+    const eta = estimate(route(straight, { highway: 'cycleway', route_bicycle_ncn: 'yes' }), { ...DEFAULT_SETTINGS, expressTrailMph: 24 }, null);
+    expect(eta.byClassM.express).toBeCloseTo(eta.distanceM, 6);
+    expect(eta.edges[0]!.speedMps).toBeCloseTo(mphToMps(24), 6);
+    expect(eta.offset.seconds).toBe(0);
+  });
+
+  it('counts real turns from voicehints, not slight bends', () => {
+    const r = route(straight, { highway: 'residential' });
+    r.voicehints = [
+      [1, 2, 0, 100, -90], // turn left
+      [2, 3, 0, 100, -20], // slight left: not a turn
+      [3, 5, 0, 100, 90], // turn right
+      [4, 8, 0, 100, -10], // keep left: not a turn
+    ];
+    expect(estimate(r, DEFAULT_SETTINGS, null).turns).toBe(2);
+  });
 });
+

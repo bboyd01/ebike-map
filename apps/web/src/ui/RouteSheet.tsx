@@ -4,7 +4,7 @@ import { CLASS_COLORS, CLASS_LABEL, prefersDark } from '../map/palette';
 import type { RouteOption } from '../routing/client';
 import type { InfraClass, Settings } from '../settings/settings';
 
-const ORDER: InfraClass[] = ['protected', 'trail', 'lane', 'shared', 'greenway', 'quiet', 'arterial', 'other'];
+const ORDER: InfraClass[] = ['express', 'protected', 'trail', 'lane', 'shared', 'greenway', 'quiet', 'arterial', 'other'];
 
 function ClassBar({ eta, units, legend }: { eta: Eta; units: Settings['units']; legend: boolean }) {
   const colors = CLASS_COLORS[prefersDark() ? 'dark' : 'light'];
@@ -36,7 +36,7 @@ const pct = (m: number, total: number) => `${Math.round((m / total) * 100)}%`;
 function offsetText(eta: Eta): string {
   const o = eta.offset;
   const extra = `+${fmtDuration(o.seconds)} for stops`;
-  if (o.seconds === 0) return 'No stop buffer (temperature at assertive)';
+  if (o.seconds === 0) return 'No stop buffer';
   if (o.mode === 'flat') return `${extra} (estimated, controls not mapped here)`;
   const counts = `${o.signals} light${o.signals === 1 ? '' : 's'} · ${o.stops + o.allWayStops} stop sign${o.stops + o.allWayStops === 1 ? '' : 's'}`;
   return o.mode === 'mixed' ? `${extra} (${counts}; estimated for ${Math.round(o.flatFraction * 100)}% of the ride)` : `${extra} (${counts})`;
@@ -44,12 +44,12 @@ function offsetText(eta: Eta): string {
 
 interface RouteSheetProps {
   options: RouteOption[];
-  selected: number | null;
+  selected: string | null;
   loading: 'idle' | 'first' | 'more';
   error: string | null;
   units: Settings['units'];
   hint: string | null;
-  onSelect: (idx: number) => void;
+  onSelect: (id: string) => void;
 }
 
 export function RouteSheet({ options, selected, loading, error, units, hint, onSelect }: RouteSheetProps) {
@@ -61,18 +61,23 @@ export function RouteSheet({ options, selected, loading, error, units, hint, onS
       {loading === 'first' && <p class="muted">Finding routes…</p>}
       <ol class="routes">
         {options.map((o, i) => {
-          const isSel = (selected ?? options[0]?.idx) === o.idx;
+          const isSel = (selected ?? options[0]?.id) === o.id;
           return (
-            <li key={o.idx}>
-              <button class={`route${isSel ? ' selected' : ''}`} aria-pressed={isSel} onClick={() => onSelect(o.idx)}>
+            <li key={o.id}>
+              <button class={`route${isSel ? ' selected' : ''}`} aria-pressed={isSel} onClick={() => onSelect(o.id)}>
                 <div class="route-head">
                   <span class="eta">{fmtDuration(o.eta.totalS)}</span>
                   <span class="arrive">arrive {fmtArrival(o.eta.totalS)}</span>
                   <span class="avg">avg {fmtSpeed(o.eta.avgMps, units)}</span>
                 </div>
+                {(o.simplest || (i === 0 && options.length > 1)) && (
+                  <div class="tags">
+                    {i === 0 && options.length > 1 && <span class="tag">Best match</span>}
+                    {o.simplest && <span class="tag">Simplest · ignores bike lanes</span>}
+                  </div>
+                )}
                 <div class="muted">
-                  {fmtDistance(o.eta.distanceM, units)} · {fmtSpeed(o.eta.movingAvgMps, units)} while moving
-                  {i === 0 && options.length > 1 && ' · best match'}
+                  {fmtDistance(o.eta.distanceM, units)} · {o.eta.turns} turn{o.eta.turns === 1 ? '' : 's'} · {fmtSpeed(o.eta.movingAvgMps, units)} while moving
                   {o.overDetour && ' · longer than your max detour'}
                 </div>
                 <ClassBar eta={o.eta} units={units} legend={isSel} />

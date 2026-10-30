@@ -21,7 +21,7 @@
 		root * /srv/data
 		@small path *.bin *.json
 		encode @small zstd gzip
-		@manifest path /manifest.json
+		@manifest path /manifest.json /status.json
 		header @manifest Cache-Control "no-cache"
 		@versioned path_regexp \.v\d+\.
 		header @versioned Cache-Control "public, max-age=31536000, immutable"

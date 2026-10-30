@@ -24,6 +24,32 @@ export const AREA_LABEL: Record<AreaId, { name: string; detail: string; size: st
 
 let manifestPromise: Promise<Manifest | null> | null = null;
 
+/** Forget cached manifest/controls (e.g. after the server finishes its first data build). */
+export function resetDataCache() {
+  manifestPromise = null;
+  controlsCache.clear();
+}
+
+/** Progress of the server's data build (data/refresh.sh writes /data/status.json). */
+export interface DataStatus {
+  state: 'running' | 'done' | 'failed';
+  step: number;
+  steps: number;
+  label: string;
+  bytes?: number;
+  total?: number;
+  updated?: number;
+}
+
+export async function loadDataStatus(): Promise<DataStatus | null> {
+  try {
+    const r = await fetch('/data/status.json', { cache: 'no-store' });
+    return r.ok ? ((await r.json()) as DataStatus) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** The data manifest, or null while the data service hasn't produced one yet. */
 export function loadManifest(): Promise<Manifest | null> {
   manifestPromise ??= fetch('/data/manifest.json', { cache: 'no-cache' })
