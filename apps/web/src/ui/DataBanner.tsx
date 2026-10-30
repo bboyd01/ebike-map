@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'preact/hooks';
 import { loadDataStatus, type DataStatus } from '../data/manifest';
 import { fmtMB } from '../data/offline';
+import { Toast } from './Toast';
 
 /**
  * Shown while the server is still building its map data (first deploy only). Polls the
  * build status and calls onReady when the data is in place.
  */
-export function DataBanner({ onReady }: { onReady: () => void }) {
+export function DataBanner({ onReady, onClose }: { onReady: () => void; onClose: () => void }) {
   const [st, setSt] = useState<DataStatus | null>(null);
   useEffect(() => {
     let live = true;
@@ -26,7 +27,7 @@ export function DataBanner({ onReady }: { onReady: () => void }) {
 
   const pct = st?.total ? Math.min(100, Math.round(((st.bytes ?? 0) / st.total) * 100)) : null;
   return (
-    <div class="banner card" role="status">
+    <Toast onClose={onClose}>
       <strong>Setting up map data on your server</strong>
       <div class="muted small">One-time, on first deploy (about 10–20 min). After that it refreshes weekly in the background. Routing already works.</div>
       {st && st.state === 'running' && (
@@ -41,6 +42,6 @@ export function DataBanner({ onReady }: { onReady: () => void }) {
         </>
       )}
       {st?.state === 'failed' && <div class="error small">The data build failed at: {st.label}. It retries every hour; check the `data` container's logs.</div>}
-    </div>
+    </Toast>
   );
 }

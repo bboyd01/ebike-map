@@ -36,8 +36,6 @@ export interface Settings {
 
   temperature: number; // T in [0,1]; offset level = 1 - T (SPEC §6)
   tSignalS: number;
-  tStopS: number;
-  tAllWayS: number;
   flatMax: number; // 0..0.5
 
   units: 'imperial' | 'metric';
@@ -68,8 +66,6 @@ export const DEFAULT_SETTINGS: Settings = {
 
   temperature: 0.5,
   tSignalS: 50,
-  tStopS: 8,
-  tAllWayS: 10,
   flatMax: 0.5,
 
   units: 'imperial',

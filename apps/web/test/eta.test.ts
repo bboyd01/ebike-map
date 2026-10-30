@@ -32,7 +32,7 @@ describe('estimate', () => {
 
   it('without a controls file, uses the flat offset and reports average speed', () => {
     const eta = estimate(route(straight, { highway: 'residential' }), DEFAULT_SETTINGS, null);
-    expect(eta.offset.mode).toBe('flat');
+    expect(eta.offset.estimatedFraction).toBe(1);
     expect(eta.offset.seconds).toBeCloseTo(0.25 * eta.movingS, 6);
     expect(eta.totalS).toBeCloseTo(eta.movingS * 1.25, 6);
     expect(eta.avgMps).toBeCloseTo(eta.distanceM / eta.totalS, 9);

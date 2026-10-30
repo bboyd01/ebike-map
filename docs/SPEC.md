@@ -707,3 +707,24 @@ server data-build progress banner (`/data/status.json`, written by `data/refresh
 and an optional offline basemap download per area (Cache Storage, served through the
 same `pmtiles://` URL).
 
+---
+
+## 18. Stoplights only; data build fixes (2026-10-30)
+
+- **Stop signs are no longer counted.** OSM's stop-sign coverage in Chicago is incomplete.
+  The temperature offset now counts mapped **stoplights** only. Riding time on side
+  streets (`residential`, `living_street`, `unclassified`, `service`), where the stop signs
+  are, gets the flat % instead, as does time anywhere lights aren't mapped (coverage grid).
+  Express trails get no buffer. Nothing is placed by guessing. This supersedes the stop-sign
+  parts of §6.2 and §6.4; the `t_stop` and `t_allway` settings are gone.
+- **Out-of-memory fix.** The first deploy's stoplight step was OOM-killed: `osmium extract`
+  over the whole Illinois file exceeded the `data` container's 512 MB limit. The build now
+  uses streaming `osmium tags-filter` passes (stoplight nodes; arterial ways plus their
+  nodes) and clips to each area in `build-controls.mjs`. Peak memory is tens of MB.
+- **The map no longer waits for stoplights.** `refresh.sh` publishes the basemaps and
+  manifest right after they're built, then builds the stoplight file. If that step fails,
+  the map still works, ETAs use the flat buffer (or the previous stoplight file), and
+  `status.json` reports the failure.
+- **Dismissible notices.** The data-setup banner, location notices and routing errors are
+  toasts with a close button.
+

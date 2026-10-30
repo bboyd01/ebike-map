@@ -28,6 +28,7 @@ export interface Eta {
   controls: RouteControl[];
 }
 
+const is = (v: string | undefined, ...vals: string[]) => v !== undefined && vals.includes(v);
 const WALK_MPS = 1.2;
 const SURFACE_MULT = { paved: 1, unpaved: 0.75, rough: 0.8 } as const;
 const GRADE_WINDOW_M = 50;
@@ -84,7 +85,7 @@ export function estimate(route: ParsedRoute, s: Settings, controls: Controls | n
   const byClassM = { express: 0, shared: 0, lane: 0, protected: 0, trail: 0, greenway: 0, quiet: 0, arterial: 0, other: 0 };
   const expressV = mphToMps(s.expressTrailMph);
   const edges: EdgeEstimate[] = [];
-  let movingS = 0, distanceM = 0, uncoveredMovingS = 0, streetMovingS = 0;
+  let movingS = 0, distanceM = 0, estimatedMovingS = 0, streetMovingS = 0;
 
   route.edges.forEach((e, i) => {
     const a = route.coords[e.from]!, b = route.coords[e.to]!;
@@ -108,7 +109,10 @@ export function estimate(route: ParsedRoute, s: Settings, controls: Controls | n
     // Express trails have essentially no stops, so they're left out of the stop buffer.
     if (cls !== 'express') {
       streetMovingS += timeS;
-      if (!controls || !isCovered(controls, mid[0], mid[1])) uncoveredMovingS += timeS;
+      // Side streets: stop signs (not counted; OSM coverage is incomplete) -> flat %.
+      // Elsewhere: counted lights where they're mapped, flat % where they aren't.
+      const sideStreet = is(e.wayTags.highway, 'residential', 'living_street', 'unclassified', 'service');
+      if (sideStreet || !controls || !isCovered(controls, mid[0], mid[1])) estimatedMovingS += timeS;
     }
   });
 
@@ -139,7 +143,7 @@ export function estimate(route: ParsedRoute, s: Settings, controls: Controls | n
       [-3, -2, -1, 0, 1, 2, 3].some((d) => leftTurnAt.has(c.index + d)),
   ).length;
 
-  const offset = computeOffset({ controls: counted, leftTurnSignals, uncoveredMovingS, totalMovingS: streetMovingS }, s);
+  const offset = computeOffset({ controls: counted, leftTurnSignals, estimatedMovingS, totalMovingS: streetMovingS }, s);
   const totalS = movingS + turnS + offset.seconds;
   return {
     distanceM,

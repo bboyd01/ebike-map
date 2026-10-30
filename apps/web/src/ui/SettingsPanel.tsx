@@ -276,21 +276,15 @@ export function SettingsPanel({ mapUrl, onClose, onChangeArea, onOfflineChange }
             />
           </Row>
           <p class="muted small">
-            At this setting: {Math.round(level * s.tSignalS)} s per light and {Math.round(level * s.tStopS)} s per stop sign where they're mapped, otherwise +
-            {Math.round(level * s.flatMax * 100)}% of riding time.
+            At this setting: {Math.round(level * s.tSignalS)} s per mapped stoplight, plus {Math.round(level * s.flatMax * 100)}% of riding time on side streets
+            (stop signs) and wherever lights aren't mapped. Express trails get no buffer.
           </p>
           <details>
             <summary>Advanced</summary>
             <Row label="Worst-case wait per light" htmlFor="tsig">
               <Slider id="tsig" min={0} max={120} step={5} value={s.tSignalS} onChange={(v) => updateSettings({ tSignalS: v })} display={`${s.tSignalS} s`} />
             </Row>
-            <Row label="Full stop at a stop sign" htmlFor="tstop">
-              <Slider id="tstop" min={0} max={20} step={1} value={s.tStopS} onChange={(v) => updateSettings({ tStopS: v })} display={`${s.tStopS} s`} />
-            </Row>
-            <Row label="All-way stop" htmlFor="tall">
-              <Slider id="tall" min={0} max={30} step={1} value={s.tAllWayS} onChange={(v) => updateSettings({ tAllWayS: v })} display={`${s.tAllWayS} s`} />
-            </Row>
-            <Row label="Flat buffer where unmapped" htmlFor="flat" hint="At the cautious end">
+            <Row label="Side-street and unmapped buffer" htmlFor="flat" hint="Percent of riding time, at the cautious end">
               <Slider id="flat" min={0} max={0.5} step={0.05} value={s.flatMax} onChange={(v) => updateSettings({ flatMax: v })} display={`${Math.round(s.flatMax * 100)}%`} />
             </Row>
             <Row label="Trail speed cap" htmlFor="trailcap" hint="Shared with people walking">

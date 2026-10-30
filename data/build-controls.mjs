@@ -1,28 +1,34 @@
 #!/usr/bin/env node
-// Builds <area>.controls.v<N>.bin from osmium OPL output (docs/SPEC.md §6.4).
+// Builds <area>.controls.v<N>.bin for every map area from osmium OPL output (SPEC §6.4).
 //
-// usage: node build-controls.mjs --bbox W,S,E,N --version N \
-//          --controls controls.opl --arterials arterials.opl --out file.bin
+// usage: node build-controls.mjs --areas "city=W,S,E,N;metro=W,S,E,N" --version N \
+//          --signals signals.opl --arterials arterials.opl --outdir DIR
 //
-// controls.opl:  nodes tagged highway=traffic_signals|stop|give_way or crossing=traffic_signals
+// signals.opl:   nodes tagged highway=traffic_signals or crossing=traffic_signals
+//                (osmium tags-filter -R ... -f opl; streaming, low memory)
 // arterials.opl: primary/secondary/tertiary ways with node locations
 //                (osmium add-locations-to-ways -f opl)
 //
-// A coverage cell is "covered" (count mode) when its lights look mapped:
-//   - it has arterial junctions and ≥ 1 tagged signal per 3 of them, or
-//   - it has no arterial junctions but at least one tagged stop sign.
+// Only stoplights are stored. Stop signs are left out: OSM's stop-sign coverage in Chicago
+// is incomplete, so time on side streets gets the flat buffer instead (SPEC §6).
+//
+// A coverage cell is "covered" (lights counted) when its lights look mapped: it has no
+// arterial junctions (no lights expected), or ≥ 1 tagged signal per 3 of them.
 import { createReadStream, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { CONTROL_TYPES, cellIndex, controlType, encodeControls, gridSize } from './controls-format.mjs';
 
 const args = Object.fromEntries(
   process.argv.slice(2).reduce((acc, a, i, all) => (a.startsWith('--') ? [...acc, [a.slice(2), all[i + 1]]] : acc), []),
 );
-for (const k of ['bbox', 'version', 'controls', 'arterials', 'out']) {
+for (const k of ['areas', 'version', 'signals', 'arterials', 'outdir']) {
   if (!args[k]) throw new Error(`missing --${k}`);
 }
-const bbox = args.bbox.split(',').map(Number);
-const { nx, ny } = gridSize(bbox);
+const areas = args.areas.split(';').map((spec) => {
+  const [name, bbox] = spec.split('=');
+  return { name, bbox: bbox.split(',').map(Number) };
+});
 
 // OPL escapes special characters as %<hex codepoint>%.
 const unescape = (s) => s.replace(/%([0-9a-fA-F]+)%/g, (_, h) => String.fromCodePoint(parseInt(h, 16)));
@@ -47,20 +53,14 @@ async function* lines(path) {
   yield* createInterface({ input: createReadStream(path), crlfDelay: Infinity });
 }
 
-const controls = [];
-const signalsPerCell = new Uint32Array(nx * ny);
-const stopsPerCell = new Uint32Array(nx * ny);
-for await (const line of lines(args.controls)) {
+// Stoplights (statewide; clipped per area below).
+const signals = [];
+for await (const line of lines(args.signals)) {
   if (line[0] !== 'n') continue;
   const f = fields(line);
   const type = controlType(parseTags(f.T));
-  if (!type || !f.x || !f.y) continue;
-  const lon = Number(f.x), lat = Number(f.y);
-  const cell = cellIndex(bbox, nx, ny, lon, lat);
-  if (cell < 0) continue;
-  controls.push({ lon, lat, type });
-  if (type === CONTROL_TYPES.signal) signalsPerCell[cell]++;
-  if (type === CONTROL_TYPES.stop || type === CONTROL_TYPES.allWayStop) stopsPerCell[cell]++;
+  if ((type !== CONTROL_TYPES.signal && type !== CONTROL_TYPES.crossingSignal) || !f.x || !f.y) continue;
+  signals.push({ lon: Number(f.x), lat: Number(f.y), type });
 }
 
 // Arterial junctions: nodes shared by arterial ways with different names
@@ -78,21 +78,24 @@ for await (const line of lines(args.arterials)) {
     e.names.add(name);
   }
 }
-const junctionsPerCell = new Uint32Array(nx * ny);
-for (const e of nodeNames.values()) {
-  if (e.names.size < 2) continue;
-  const cell = cellIndex(bbox, nx, ny, e.lon, e.lat);
-  if (cell >= 0) junctionsPerCell[cell]++;
-}
+const junctions = [...nodeNames.values()].filter((e) => e.names.size >= 2);
 
-const covered = new Uint8Array(nx * ny);
-for (let i = 0; i < nx * ny; i++) {
-  covered[i] = junctionsPerCell[i] > 0 ? (signalsPerCell[i] * 3 >= junctionsPerCell[i] ? 1 : 0) : stopsPerCell[i] > 0 ? 1 : 0;
-}
+for (const { name, bbox } of areas) {
+  const { nx, ny } = gridSize(bbox);
+  const inArea = signals.filter((c) => cellIndex(bbox, nx, ny, c.lon, c.lat) >= 0);
+  const signalsPerCell = new Uint32Array(nx * ny);
+  const junctionsPerCell = new Uint32Array(nx * ny);
+  for (const c of inArea) if (c.type === CONTROL_TYPES.signal) signalsPerCell[cellIndex(bbox, nx, ny, c.lon, c.lat)]++;
+  for (const j of junctions) {
+    const cell = cellIndex(bbox, nx, ny, j.lon, j.lat);
+    if (cell >= 0) junctionsPerCell[cell]++;
+  }
+  const covered = new Uint8Array(nx * ny);
+  for (let i = 0; i < nx * ny; i++) covered[i] = junctionsPerCell[i] === 0 || signalsPerCell[i] * 3 >= junctionsPerCell[i] ? 1 : 0;
 
-const bin = encodeControls({ version: Number(args.version), bbox, covered, controls });
-writeFileSync(args.out, bin);
-const coveredCount = covered.reduce((a, b) => a + b, 0);
-console.log(
-  JSON.stringify({ out: args.out, controls: controls.length, bytes: bin.length, cells: nx * ny, covered: coveredCount }),
-);
+  const out = join(args.outdir, `${name}.controls.v${args.version}.bin`);
+  const bin = encodeControls({ version: Number(args.version), bbox, covered, controls: inArea });
+  writeFileSync(out, bin);
+  const coveredCount = covered.reduce((a, b) => a + b, 0);
+  console.log(JSON.stringify({ out, signals: inArea.length, bytes: bin.length, cells: nx * ny, covered: coveredCount }));
+}
